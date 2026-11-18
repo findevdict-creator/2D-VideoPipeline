@@ -21,6 +21,9 @@ export class AgentSdkRunner implements AgentRunner {
         allowedTools: req.tools,
         permissionMode: "acceptEdits",
         persistSession: false,
+        ...(req.addDirs?.length ? { additionalDirectories: req.addDirs } : {}),
+        // Project settings hold the skills in .claude/skills.
+        ...(req.useProjectSkills ? { settingSources: ["project" as const] } : {}),
         ...(req.model ? { model: req.model } : {}),
       },
     });

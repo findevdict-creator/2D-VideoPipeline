@@ -16,5 +16,34 @@
     "python": "",
     "auditionVoices": ["af_heart", "af_bella", "af_nicole", "am_michael", "am_fenrir", "bf_emma", "bm_george"],
     "auditionText": "Your phone knows where you are to within a few meters. Here is how GPS pulls it off."
+  },
+  "render": {
+    "fps": 30,
+    "resolution": 1080,
+    "previewScale": 0.5,
+    "stillScale": 0.5,
+    "codec": "h264",
+    "crf": 18,
+    "previewCrf": 30,
+    "concurrency": null,
+    "browserExecutable": "",
+    "transitionSec": 0.4,
+    "outputDir": "final",
+    "captions": {
+      "enabled": true,
+      "fontSize": 54,
+      "position": "bottom",
+      "highlight": "accent",
+      "combineWithinMs": 1200
+    },
+    "music": {
+      "file": "",
+      "volume": 0.12
+    }
+  },
+  "animator": {
+    "maxFixRounds": 3,
+    "stillsPerScene": 3,
+    "parallelScenes": 1
   }
 }

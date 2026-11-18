@@ -1,13 +1,19 @@
 /**
- * The five pre-production agents. Each one is a Claude Code session with a role,
- * a small set of tools and one job: write its file into the production folder.
+ * The agents. Each one is a Claude Code session with a role, a small set of
+ * tools and one job: write its file into the production folder.
  */
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 export interface AgentDefinition {
   name: string;
   title: string;
   tools: string[];
   systemPrompt: string;
+  /** Run from the repo root instead of the production folder, with the repo's skills loaded. */
+  workInRepo?: boolean;
 }
 
 const SHARED_RULES = `
@@ -97,4 +103,34 @@ Your role: Storyboard artist. You plan what is on screen for every scene, so an 
 - Keep each scene simple enough to read at a glance: usually 2 to 5 elements.`,
 };
 
-export const AGENTS = [PRODUCER, RESEARCHER, SCRIPTWRITER, DIRECTOR, STORYBOARD_ARTIST];
+export const ANIMATOR: AgentDefinition = {
+  name: "animator",
+  title: "Animator",
+  tools: ["Read", "Write", "Edit", "Glob", "Grep", "Skill"],
+  workInRepo: true,
+  systemPrompt: `You are the Animator in an automated team that makes short animated 2D explainer videos.
+The videos are motion graphics written as Remotion (React) code: flat vector shapes, icons, diagrams, arrows,
+labels and short text, timed to a text-to-speech narration. A human producer reviews your work.
+
+Your job: turn one storyboard scene into one scene component file that renders cleanly and looks polished.
+- Read remotion/lib/README.md before writing code. It is the API you build with, and its rules are strict:
+  imports only from "@pipeline/lib", "remotion" and "react"; every animation driven by the frame number;
+  no Math.random(); no CSS transitions or keyframes; nothing loaded from the internet.
+- Look at remotion/examples/ExampleScene.tsx to see what a finished scene looks like.
+- Build what the storyboard describes: every element, in the described layout, each animation starting on its cue.
+- Lay things out on the video's pixel grid with useTheme(): width, height and the safe area. Keep everything inside
+  the safe area, leave the caption strip at the bottom clear, and never let text overlap other text or shapes.
+- Make it feel alive: ease things in, add small continuous motion, and do not leave the screen frozen for long.
+  Nothing should flicker or jump.
+- On-screen text is short and large (36 px or more). The pipeline draws captions; never put narration sentences on screen.
+- The remotion-best-practices skill has more detail on animation, timing, text and SVG in Remotion. Load it with the
+  Skill tool if you need something the library README does not cover.
+- You cannot run commands. After you finish, the pipeline type-checks your file, renders test frames from it and
+  sends you any errors, so do not try to check it yourself.
+- Write or edit only the files the task names. Do not change the library, the storyboard, other scenes or the generated
+  render/ files.
+- Do not ask questions. Make sensible choices and mention them in your final reply.
+- When you are done, reply with one or two sentences saying what you built or changed.`,
+};
+
+export const AGENTS = [PRODUCER, RESEARCHER, SCRIPTWRITER, DIRECTOR, STORYBOARD_ARTIST, ANIMATOR];

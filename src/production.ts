@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import type { PipelineConfig } from "./config.js";
 
-export const STAGE_IDS = ["brief", "script", "storyboard", "voiceover"] as const;
+export const STAGE_IDS = ["brief", "script", "storyboard", "voiceover", "animation", "render"] as const;
 export type StageId = (typeof STAGE_IDS)[number];
 
 export type StageStatus = "pending" | "in_progress" | "awaiting_approval" | "approved";
@@ -41,6 +41,9 @@ export interface ProductionState {
  *     director-notes/      Director reviews, one file per round
  *     voice/               Kokoro audio: one file per scene, plus full.wav
  *     voiceover.json       real scene lengths, word timings and cue timings
+ *     scenes/              Animator: one Remotion component per scene (sNN.tsx)
+ *     render/              generated Remotion project, test frames and preview.mp4
+ *     final/               the finished video and its subtitles
  *     history/             earlier versions, saved before each revision
  *     logs/                one record per agent run
  *     state.json           which stages are approved

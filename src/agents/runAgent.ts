@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import type { z } from "zod";
 import type { StageContext } from "../context.js";
-import type { AgentDefinition } from "./definitions.js";
+import { REPO_ROOT, type AgentDefinition } from "./definitions.js";
 
 export type Validation<T> = { ok: true; value: T } | { ok: false; errors: string[] };
 
@@ -52,7 +52,10 @@ export async function runAgent(ctx: StageContext, agent: AgentDefinition, prompt
     agent: agent.name,
     systemPrompt: agent.systemPrompt,
     prompt,
-    cwd: ctx.production.dir,
+    // The Animator works from the repo root so Claude Code finds the Remotion skills in .claude/skills.
+    cwd: agent.workInRepo ? REPO_ROOT : ctx.production.dir,
+    addDirs: agent.workInRepo ? [ctx.production.dir] : undefined,
+    useProjectSkills: agent.workInRepo,
     tools: agent.tools,
     expectedOutputs,
     model: ctx.config.model,

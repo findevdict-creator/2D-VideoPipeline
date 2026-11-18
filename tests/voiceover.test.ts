@@ -12,9 +12,13 @@ import { Production } from "../src/production.js";
 import { MockRunner } from "../src/runners/mock.js";
 import type { Voiceover } from "../src/schemas.js";
 import { PIPELINE_STAGES } from "../src/stages/index.js";
+
 import { synthesize } from "../src/stages/voiceover.js";
 import type { SpeechJob } from "../src/voice/engine.js";
 import { applyPronunciations, findCueTiming, kokoroLanguage } from "../src/voice/text.js";
+
+/** Brief through voiceover; animation and render are tested in animation.test.ts. */
+const THROUGH_VOICEOVER = PIPELINE_STAGES.slice(0, 4);
 
 async function setup(voice: Record<string, unknown> = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "voice-test-"));
@@ -32,7 +36,7 @@ const readVoiceover = async (p: Production) =>
 test("the voiceover stage speaks every scene and times every storyboard cue", async () => {
   const { ctx, production } = await setup();
   const approver = new ScriptedApprover();
-  assert.equal(await runPipeline(ctx, PIPELINE_STAGES, approver), "complete");
+  assert.equal(await runPipeline(ctx, THROUGH_VOICEOVER, approver), "complete");
 
   const vo = await readVoiceover(production);
   assert.equal(vo.scenes.length, 5);
@@ -96,7 +100,7 @@ test("revision notes go to the Scriptwriter, and broken cues go to the Storyboar
     { decision: "approve" },
     { decision: "revise", notes: "Scene 2: say 'around thirty' instead" },
   ]);
-  await runPipeline(ctx, PIPELINE_STAGES, approver);
+  await runPipeline(ctx, THROUGH_VOICEOVER, approver);
   const after = runner.calls.slice(-1);
   assert.deepEqual(
     after.map((c) => c.agent),

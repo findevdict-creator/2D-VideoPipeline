@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Brief, DirectorNotes, Script, Storyboard } from "../schemas.js";
+import { FALLBACK_SCENE } from "../agents/fallbackScene.js";
 import type { AgentRunner, AgentRunRequest, AgentRunResult } from "./types.js";
 
 /**
@@ -36,6 +37,11 @@ export class MockRunner implements AgentRunner {
         await writeJson(out, firstScriptRound ? MOCK_DIRECTOR_REVISE : MOCK_DIRECTOR_APPROVE);
         break;
       }
+      case "animator":
+        // A generic scene that lays out the storyboard's elements; its review finds nothing to fix.
+        if (out.endsWith(".tsx")) await fs.writeFile(out, FALLBACK_SCENE);
+        else await writeJson(out, { verdict: "good", notes: [] });
+        break;
       default:
         throw new Error(`Mock runner: no fixture for agent "${req.agent}"`);
     }

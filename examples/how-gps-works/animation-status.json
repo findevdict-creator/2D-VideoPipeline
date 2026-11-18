@@ -1,0 +1,74 @@
+{
+  "scenes": {
+    "s01": {
+      "status": "good",
+      "agentRounds": 1,
+      "notes": [],
+      "problems": [],
+      "stills": [],
+      "sourceHash": "145d84791d019cc8",
+      "updatedAt": "2026-11-18T09:41:12.189Z"
+    },
+    "s04": {
+      "status": "good",
+      "agentRounds": 2,
+      "notes": [],
+      "problems": [],
+      "stills": [],
+      "sourceHash": "5640e13d22a1525d",
+      "updatedAt": "2026-11-18T09:42:18.423Z"
+    },
+    "s02": {
+      "status": "good",
+      "agentRounds": 2,
+      "notes": [],
+      "problems": [],
+      "stills": [],
+      "sourceHash": "80195bc242599238",
+      "updatedAt": "2026-11-18T09:42:45.868Z"
+    },
+    "s03": {
+      "status": "fixed",
+      "agentRounds": 2,
+      "notes": [
+        "At frame 54, during the 'keeps broadcasting' cue, the first rings were almost invisible: a single faint arc at about 9% opacity, which left the frame looking empty. I raised the reach of the early heartbeat pulses from 170 px to 280 px. Two rings now show clearly near the satellite, and they still fade out before the Position/Time tags appear 290 px ahead of the carrier ring.",
+        "Frames 234 and 272 match the storyboard: the badge and the 'Only listens' label are lit, the coral arrow draws up and then the cross stamps over it. Everything stays in the safe area and clear of the captions, and nothing overlaps."
+      ],
+      "problems": [],
+      "stills": [],
+      "sourceHash": "cc3f39b8f15cf1dd",
+      "updatedAt": "2026-11-18T09:43:41.587Z"
+    },
+    "s07": {
+      "status": "fixed",
+      "agentRounds": 2,
+      "notes": [
+        "The blue dot started on the left edge of the phone screen and finished against the right edge, so the screen clip cut off the dot and its halo (visible at frames 54 and 308). Its path now runs from u=0.2 to about u=0.73 on the street curve, which keeps it well inside the screen for the whole scene."
+      ],
+      "problems": [],
+      "stills": [],
+      "sourceHash": "6425fd8e46ef73ef",
+      "updatedAt": "2026-11-18T09:46:07.262Z"
+    },
+    "s05": {
+      "status": "fixed",
+      "agentRounds": 3,
+      "notes": [
+        "After the tilt, the 10-degree skew pushed the map plane's slanted corners to the frame edges, outside the safe area. The map rectangle, river and horizontal streets now narrow by the skew offset as the map tilts, so the slanted plane stays inside the safe area. Circles, spheres, markers and the blue dot are unchanged."
+      ],
+      "problems": [],
+      "stills": [],
+      "sourceHash": "7ffb9a93bc9b0e8b",
+      "updatedAt": "2026-11-18T09:46:46.026Z"
+    },
+    "s06": {
+      "status": "good",
+      "agentRounds": 1,
+      "notes": [],
+      "problems": [],
+      "stills": [],
+      "sourceHash": "17b298ee636b3e93",
+      "updatedAt": "2026-11-18T09:52:18.634Z"
+    }
+  }
+}

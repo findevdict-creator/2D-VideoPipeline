@@ -1,4 +1,6 @@
+import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
+import path from "node:path";
 import { parseArgs } from "node:util";
 import { ScriptedApprover, TerminalApprover, type Approver } from "./approval.js";
 import { loadConfig, type RunnerKind } from "./config.js";
@@ -6,12 +8,13 @@ import type { StageContext } from "./context.js";
 import { runPipeline } from "./pipeline.js";
 import { Production } from "./production.js";
 import { createRunner } from "./runners/index.js";
+import { REPO_ROOT, renderPaths, writeProject } from "./render/project.js";
 import { PIPELINE_STAGES } from "./stages/index.js";
 import { auditionVoices } from "./voice/audition.js";
 
 const HELP = `2D explainer video pipeline
 
-Stages: brief, research and script, storyboard, voiceover. You approve each one.
+Stages: brief, research and script, storyboard, voiceover, animation, final render. You approve each one.
 
 Usage:
   npm run pipeline -- new "<what the video is about>" [options]
@@ -19,6 +22,7 @@ Usage:
   npm run pipeline -- run <production-id> [options]     resume a production
   npm run pipeline -- status <production-id>
   npm run pipeline -- list
+  npm run pipeline -- studio <production-id>            open the video in Remotion Studio to scrub through it
   npm run pipeline -- voices [--text "..."]             hear each audition voice from pipeline.config.json
   npm run setup:voice                                   install Kokoro for the voiceover (once)
 
@@ -73,6 +77,25 @@ async function main() {
     const s = production.state;
     console.log(`${s.id}\nPrompt: ${s.prompt}\n${stageLine(s.stages)}`);
     console.log(`Agent runs: ${s.agentRuns}, reported cost: $${s.totalCostUsd.toFixed(2)}\nFolder: ${production.dir}`);
+    return;
+  }
+
+  if (command === "studio") {
+    const production = await Production.load(config, required(rest[0], "production id"));
+    const ctx: StageContext = { config, runner: createRunner(config), production, log: (m) => console.log(m) };
+    if (!production.state.stages.voiceover || production.stage("voiceover").status !== "approved") {
+      throw new Error("Approve the voiceover first: the studio needs its timings.");
+    }
+    await writeProject(ctx);
+    const r = renderPaths(ctx);
+    const cli = path.join(REPO_ROOT, "node_modules", "@remotion", "cli", "remotion-cli.js");
+    console.log(`Opening Remotion Studio for ${production.id}. Press Ctrl+C here to close it.`);
+    // Run from the repo root so remotion.config.ts (which wires up the pipeline library) is used.
+    const child = spawn(process.execPath, [cli, "studio", r.entry, "--public-dir", r.publicDir], {
+      cwd: REPO_ROOT,
+      stdio: "inherit",
+    });
+    await new Promise((resolve) => child.on("close", resolve));
     return;
   }
 

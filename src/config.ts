@@ -45,12 +45,66 @@ export const VoiceConfigSchema = z.object({
 });
 export type VoiceConfig = z.infer<typeof VoiceConfigSchema>;
 
+/** Animation and render settings. */
+export const RenderConfigSchema = z.object({
+  fps: z.number().int().min(12).max(60).default(30),
+  /** The short side of the final video in pixels: 1080 gives 1920x1080 for 16:9, 1080x1920 for 9:16. */
+  resolution: z.number().int().min(360).max(2160).default(1080),
+  /** The preview is rendered at this fraction of full size. */
+  previewScale: z.number().min(0.1).max(1).default(0.5),
+  /** Test frames for the Animator and your review are rendered at this fraction of full size. */
+  stillScale: z.number().min(0.1).max(1).default(0.5),
+  codec: z.enum(["h264", "h265", "vp8", "vp9", "prores"]).default("h264"),
+  /** Quality: lower is better and bigger. */
+  crf: z.number().int().min(0).max(51).default(18),
+  previewCrf: z.number().int().min(0).max(51).default(30),
+  /** Frames rendered at once. Empty means Remotion's default (half your CPU threads, up to 8). */
+  concurrency: z.number().int().min(1).nullable().default(null),
+  /** Path to a Chrome or Chrome Headless Shell. Empty means Remotion downloads its own. */
+  browserExecutable: z.string().default(""),
+  /** Length of each scene's entrance transition, in seconds. */
+  transitionSec: z.number().min(0).max(2).default(0.4),
+  /** Where final videos go, relative to the production folder. */
+  outputDir: z.string().default("final"),
+  captions: z
+    .object({
+      enabled: z.boolean().default(true),
+      fontSize: z.number().int().min(16).max(160).default(54),
+      position: z.enum(["bottom", "top"]).default("bottom"),
+      /** Palette key or hex colour for the word being spoken. */
+      highlight: z.string().default("accent"),
+      /** Words spoken within this many milliseconds share a caption line. */
+      combineWithinMs: z.number().int().min(200).max(5000).default(1200),
+    })
+    .prefault({}),
+  music: z
+    .object({
+      /** An audio file (mp3, wav, m4a), relative to the repo root. Empty means no music. */
+      file: z.string().default(""),
+      volume: z.number().min(0).max(1).default(0.12),
+    })
+    .prefault({}),
+});
+export type RenderConfig = z.infer<typeof RenderConfigSchema>;
+
+export const AnimatorConfigSchema = z.object({
+  /** Check-and-fix rounds per scene after the first draft. */
+  maxFixRounds: z.number().int().min(0).max(6).default(3),
+  /** Test frames rendered per scene for each check. */
+  stillsPerScene: z.number().int().min(1).max(8).default(3),
+  /** Scenes animated at the same time. More is faster but uses your plan faster. */
+  parallelScenes: z.number().int().min(1).max(8).default(1),
+});
+export type AnimatorConfig = z.infer<typeof AnimatorConfigSchema>;
+
 const FileConfigSchema = z.object({
   runner: z.enum(["claude-cli", "agent-sdk", "mock"]).optional(),
   model: z.string().optional(),
   productionsDir: z.string().optional(),
   maxDirectorRounds: z.number().int().min(1).max(5).optional(),
   voice: VoiceConfigSchema.partial().optional(),
+  render: z.record(z.string(), z.unknown()).optional(),
+  animator: AnimatorConfigSchema.partial().optional(),
 });
 
 export interface PipelineConfig {
@@ -69,9 +123,15 @@ export interface PipelineConfig {
   /** The repo root, where pipeline.config.json and pronunciations.json live. */
   rootDir: string;
   voice: VoiceConfig;
+  render: RenderConfig;
+  animator: AnimatorConfig;
 }
 
-export type ConfigOverrides = Partial<Omit<PipelineConfig, "voice">> & { voice?: Partial<VoiceConfig> };
+export type ConfigOverrides = Partial<Omit<PipelineConfig, "voice" | "render" | "animator">> & {
+  voice?: Partial<VoiceConfig>;
+  render?: Partial<RenderConfig>;
+  animator?: Partial<AnimatorConfig>;
+};
 
 const RUNNERS: RunnerKind[] = ["claude-cli", "agent-sdk", "mock"];
 
@@ -100,6 +160,13 @@ export function loadConfig(overrides: ConfigOverrides = {}): PipelineConfig {
     ...overrides.voice,
   });
 
+  const render = RenderConfigSchema.parse({
+    ...file.render,
+    ...(process.env.REMOTION_BROWSER_EXECUTABLE ? { browserExecutable: process.env.REMOTION_BROWSER_EXECUTABLE } : {}),
+    ...overrides.render,
+  });
+  const animator = AnimatorConfigSchema.parse({ ...file.animator, ...overrides.animator });
+
   return {
     runner,
     // Pinned so a Claude Code default that needs extra usage credits does not stop the run.
@@ -114,6 +181,8 @@ export function loadConfig(overrides: ConfigOverrides = {}): PipelineConfig {
     claudeBin: overrides.claudeBin ?? process.env.CLAUDE_BIN ?? "claude",
     rootDir,
     voice,
+    render,
+    animator,
   };
 }
 
