@@ -43,6 +43,7 @@ export class ClaudeCliRunner implements AgentRunner {
       systemPromptFile,
       "--no-session-persistence",
     ];
+    for (const dir of req.addDirs ?? []) args.push("--add-dir", dir);
     if (req.model) args.push("--model", req.model);
 
     return new Promise((resolve, reject) => {

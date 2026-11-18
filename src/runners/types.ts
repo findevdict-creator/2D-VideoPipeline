@@ -5,8 +5,12 @@ export interface AgentRunRequest {
   systemPrompt: string;
   /** The task for this run. */
   prompt: string;
-  /** Working directory: the production folder. */
+  /** Working directory: the production folder, or the repo root for agents that use its skills. */
   cwd: string;
+  /** More folders the agent may read and write, besides cwd. */
+  addDirs?: string[];
+  /** Load the skills in the cwd's .claude/skills folder (the Remotion skills, for the Animator). */
+  useProjectSkills?: boolean;
   /** Built-in Claude Code tools the agent may use, for example ["Read", "Write"]. */
   tools: string[];
   /** Files (absolute paths) the agent is expected to write. */
