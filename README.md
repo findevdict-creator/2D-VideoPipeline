@@ -176,6 +176,8 @@ At each review you see a summary and the file paths, and choose:
 
 [`examples/how-gps-works/`](examples/how-gps-works/) holds a real pre-production run, made with the `claude-cli` runner and Opus from the prompt "Make an explainer video on how GPS works". It has the brief, research, a 7-scene script (about 79 seconds), the storyboard and the Director's reviews. The Director sent the storyboard back once, and the Storyboard artist fixed 3 scenes. The run took 8 agent runs, about 8 minutes, and Claude Code reported an equivalent API cost of about $2.
 
+`examples/how-gps-works/scenes/` holds the Animator's 7 scenes for that storyboard, from a real run with Opus (the voice was a silent stand-in, because Kokoro could not be installed where it ran). With 4 scenes at a time, the animation stage took about 15 minutes and 21 agent runs, and Claude Code reported an equivalent API cost of about $10. The checks caught type errors in 3 scenes, and the Animator's look at its test frames led it to fix 3 more: faint signal rings, a dot cut off by the phone screen, and a tilted map leaving the safe area. `animation-status.json` has its notes.
+
 ## Production folder
 
 ```
