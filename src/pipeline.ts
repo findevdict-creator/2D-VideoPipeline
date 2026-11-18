@@ -50,12 +50,14 @@ export async function runPipeline(ctx: StageContext, stages: Stage[], approver: 
         const problems = await stage.validate(ctx);
         if (problems.length) {
           ctx.log(`Your edits have problems:\n  - ${problems.join("\n  - ")}\nFix them, or ask the agents to.`);
+        } else if (stage.afterEdit) {
+          await stage.afterEdit(ctx);
         }
         continue;
       }
 
       // Revision requested: keep the old version, then send your notes to the agents.
-      await production.archive(stage.id, stage.outputs(ctx));
+      await production.archive(stage.id, stage.archiveFiles?.(ctx) ?? stage.outputs(ctx));
       state.revision += 1;
       state.humanNotes.push(decision.notes);
       state.status = "in_progress";
@@ -67,6 +69,7 @@ export async function runPipeline(ctx: StageContext, stages: Stage[], approver: 
     }
   }
 
-  ctx.log(`\nPre-production complete. The approved storyboard is in ${production.path("storyboard.json")}`);
+  const last = stages.at(-1);
+  ctx.log(`\nAll stages approved.${last ? ` Latest output: ${last.outputs(ctx).join(", ")}` : ""}`);
   return "complete";
 }

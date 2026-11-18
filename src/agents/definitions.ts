@@ -34,7 +34,8 @@ Your role: Producer. You turn the client's request into a clear creative brief t
 - Write key takeaways as statements the viewer could repeat, not topics.
 - Use outOfScope to protect focus: name the tempting tangents to skip.
 - If the request gives no length, default to 75 seconds. If it gives no format, use 16:9.
-- Default Kokoro voice is af_heart unless the request suggests otherwise (am_michael is a good male voice).`,
+- For the voice, use the default Kokoro voice named in the task unless the request asks for something else
+  (for example a male voice: am_michael; British: bf_emma or bm_george).`,
 };
 
 export const RESEARCHER: AgentDefinition = {

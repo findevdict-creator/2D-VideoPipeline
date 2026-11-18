@@ -5,7 +5,8 @@
   "scripts": {
     "pipeline": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/*.test.ts"
+    "test": "tsx --test tests/*.test.ts",
+    "setup:voice": "node scripts/setup-voice.mjs"
   },
   "repository": {
     "type": "git",

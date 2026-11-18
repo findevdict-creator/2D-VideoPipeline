@@ -12,4 +12,8 @@ export interface Stage {
   summarize(ctx: StageContext): Promise<string>;
   /** Re-check the files, for example after you edited them by hand. Returns problems found. */
   validate(ctx: StageContext): Promise<string[]>;
+  /** Files saved to history/ before a revision, when they differ from `outputs`. */
+  archiveFiles?(ctx: StageContext): string[];
+  /** Runs after you edit files by hand and they pass `validate`, for stages that rebuild from them. */
+  afterEdit?(ctx: StageContext): Promise<void>;
 }

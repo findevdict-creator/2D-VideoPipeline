@@ -1,0 +1,20 @@
+{
+  "runner": "claude-cli",
+  "model": "opus",
+  "maxDirectorRounds": 2,
+  "voice": {
+    "engine": "kokoro",
+    "voice": "af_heart",
+    "speed": 1.0,
+    "paceSpeed": { "slow": 0.9, "normal": 1.0, "fast": 1.1 },
+    "language": "auto",
+    "padBeforeSec": 0.3,
+    "padAfterSec": 0.3,
+    "sampleRate": 24000,
+    "pronunciationsFile": "pronunciations.json",
+    "timing": "kokoro",
+    "python": "",
+    "auditionVoices": ["af_heart", "af_bella", "af_nicole", "am_michael", "am_fenrir", "bf_emma", "bm_george"],
+    "auditionText": "Your phone knows where you are to within a few meters. Here is how GPS pulls it off."
+  }
+}

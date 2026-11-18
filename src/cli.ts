@@ -6,9 +6,12 @@ import type { StageContext } from "./context.js";
 import { runPipeline } from "./pipeline.js";
 import { Production } from "./production.js";
 import { createRunner } from "./runners/index.js";
-import { PREPRODUCTION_STAGES } from "./stages/index.js";
+import { PIPELINE_STAGES } from "./stages/index.js";
+import { auditionVoices } from "./voice/audition.js";
 
-const HELP = `2D explainer video pipeline: pre-production
+const HELP = `2D explainer video pipeline
+
+Stages: brief, research and script, storyboard, voiceover. You approve each one.
 
 Usage:
   npm run pipeline -- new "<what the video is about>" [options]
@@ -16,6 +19,8 @@ Usage:
   npm run pipeline -- run <production-id> [options]     resume a production
   npm run pipeline -- status <production-id>
   npm run pipeline -- list
+  npm run pipeline -- voices [--text "..."]             hear each audition voice from pipeline.config.json
+  npm run setup:voice                                   install Kokoro for the voiceover (once)
 
 Options:
   --runner <claude-cli|agent-sdk|mock>   how agents run (default: claude-cli, or PIPELINE_RUNNER)
@@ -25,6 +30,7 @@ Options:
   --model <name>                         model for every agent, for example opus or sonnet
   --yes                                  approve every stage automatically
   --file <path>                          read the request from a file
+  --text <sentence>                      sentence for the voices command
   -h, --help
 `;
 
@@ -36,6 +42,7 @@ async function main() {
       model: { type: "string" },
       yes: { type: "boolean", default: false },
       file: { type: "string" },
+      text: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -46,6 +53,13 @@ async function main() {
   }
 
   const config = loadConfig({ runner: values.runner as RunnerKind | undefined, model: values.model });
+
+  if (command === "voices") {
+    const results = await auditionVoices(config, values.text, (m) => console.log(m));
+    console.log("\nListen to each file, then set your favourite as voice.voice in pipeline.config.json:");
+    for (const r of results) console.log(`  ${r.voice.padEnd(12)} ${r.file}`);
+    return;
+  }
 
   if (command === "list") {
     const all = await Production.list(config);
@@ -80,7 +94,7 @@ async function main() {
   const ctx: StageContext = { config, runner: createRunner(config), production, log: (m) => console.log(m) };
   const approver: Approver = values.yes ? new ScriptedApprover() : new TerminalApprover();
   try {
-    await runPipeline(ctx, PREPRODUCTION_STAGES, approver);
+    await runPipeline(ctx, PIPELINE_STAGES, approver);
   } finally {
     approver.close?.();
   }

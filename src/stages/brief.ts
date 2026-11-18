@@ -38,6 +38,8 @@ Write the brief to ${f.brief}.`;
       PRODUCER,
       `${task}
 
+The default Kokoro voice is ${ctx.config.voice.voice} at normal pace.
+
 The brief must be JSON matching this JSON Schema:
 ${schemaForPrompt(BriefSchema)}`,
       f.brief,
