@@ -47,6 +47,8 @@ You need Node 20 or later, and for the default runner, [Claude Code](https://cod
 npm install
 ```
 
+On Windows, check that `claude --version` prints a version in the same terminal (PowerShell or Command Prompt). If Claude Code is installed but not on your PATH, point the pipeline at it, for example `$env:CLAUDE_BIN = "C:\Users\you\.local\bin\claude.exe"` in PowerShell.
+
 ## Usage
 
 ```bash

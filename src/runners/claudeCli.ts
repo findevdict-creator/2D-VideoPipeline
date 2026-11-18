@@ -1,4 +1,7 @@
 import { spawn } from "node:child_process";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import type { AgentRunner, AgentRunRequest, AgentRunResult } from "./types.js";
 
 /**
@@ -11,7 +14,20 @@ export class ClaudeCliRunner implements AgentRunner {
 
   constructor(private readonly claudeBin = "claude") {}
 
-  run(req: AgentRunRequest): Promise<AgentRunResult> {
+  async run(req: AgentRunRequest): Promise<AgentRunResult> {
+    // The system prompt goes in a file and the task through stdin, so every
+    // command-line argument stays short and simple. That keeps Windows happy.
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "pipeline-agent-"));
+    const systemPromptFile = path.join(tmp, "system-prompt.md");
+    await fs.writeFile(systemPromptFile, req.systemPrompt);
+    try {
+      return await this.spawnClaude(req, systemPromptFile);
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  }
+
+  private spawnClaude(req: AgentRunRequest, systemPromptFile: string): Promise<AgentRunResult> {
     const tools = req.tools.join(",");
     const args = [
       "-p",
@@ -23,20 +39,30 @@ export class ClaudeCliRunner implements AgentRunner {
       tools,
       "--permission-mode",
       "acceptEdits",
-      "--append-system-prompt",
-      req.systemPrompt,
+      "--append-system-prompt-file",
+      systemPromptFile,
       "--no-session-persistence",
     ];
     if (req.model) args.push("--model", req.model);
 
     return new Promise((resolve, reject) => {
-      const child = spawn(this.claudeBin, args, { cwd: req.cwd, stdio: ["pipe", "pipe", "pipe"] });
+      // On Windows, Claude Code is usually a claude.cmd or claude.ps1 shim, which
+      // Node can only start through the shell.
+      const windows = process.platform === "win32";
+      const child = windows
+        ? spawn([this.claudeBin, ...args].map(quoteForCmd).join(" "), {
+            cwd: req.cwd,
+            shell: true,
+            stdio: ["pipe", "pipe", "pipe"],
+            windowsHide: true,
+          })
+        : spawn(this.claudeBin, args, { cwd: req.cwd, stdio: ["pipe", "pipe", "pipe"] });
       let stdout = "";
       let stderr = "";
       child.stdout.on("data", (d) => (stdout += d));
       child.stderr.on("data", (d) => (stderr += d));
       child.on("error", (err) =>
-        reject(new Error(`Could not start "${this.claudeBin}". Is Claude Code installed and on your PATH? (${err.message})`)),
+        reject(new Error(`${notInstalled(this.claudeBin)} (${err.message})`)),
       );
       child.on("close", (code) => {
         let parsed: { result?: string; is_error?: boolean; total_cost_usd?: number; duration_ms?: number } | undefined;
@@ -44,6 +70,10 @@ export class ClaudeCliRunner implements AgentRunner {
           parsed = JSON.parse(stdout);
         } catch {
           // fall through to the error below
+        }
+        if (code !== 0 && !parsed && /not recognized|not found/i.test(stderr)) {
+          reject(new Error(notInstalled(this.claudeBin)));
+          return;
         }
         if (code !== 0 || !parsed || parsed.is_error) {
           const detail = parsed?.result ?? (stderr.trim() || stdout.trim() || `exit code ${code}`);
@@ -56,4 +86,16 @@ export class ClaudeCliRunner implements AgentRunner {
       child.stdin.end(req.prompt);
     });
   }
+}
+
+function notInstalled(bin: string) {
+  return (
+    `Could not start "${bin}". Check that "claude --version" works in this terminal. ` +
+    `If Claude Code is installed somewhere else, set CLAUDE_BIN to its full path.`
+  );
+}
+
+/** Quote one argument for cmd.exe when it contains spaces or special characters. */
+export function quoteForCmd(arg: string): string {
+  return /^[\w.,:\\/=+-]+$/.test(arg) ? arg : `"${arg.replace(/"/g, '""')}"`;
 }
