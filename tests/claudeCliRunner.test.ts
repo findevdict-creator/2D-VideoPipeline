@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { ClaudeCliRunner } from "../src/runners/claudeCli.js";
+import { ClaudeCliRunner, quoteForCmd } from "../src/runners/claudeCli.js";
 
 /** A stand-in `claude` executable that records how it was called. */
 async function fakeClaude(dir: string, response: object, exitCode = 0) {
@@ -13,7 +13,10 @@ async function fakeClaude(dir: string, response: object, exitCode = 0) {
     `#!/usr/bin/env node
 import fs from "node:fs";
 const stdin = fs.readFileSync(0, "utf8");
-fs.writeFileSync(${JSON.stringify(path.join(dir, "call.json"))}, JSON.stringify({ args: process.argv.slice(2), stdin, cwd: process.cwd() }));
+const args = process.argv.slice(2);
+const promptFile = args[args.indexOf("--append-system-prompt-file") + 1];
+const systemPrompt = fs.readFileSync(promptFile, "utf8");
+fs.writeFileSync(${JSON.stringify(path.join(dir, "call.json"))}, JSON.stringify({ args, stdin, systemPrompt, cwd: process.cwd() }));
 process.stdout.write(${JSON.stringify(JSON.stringify(response))});
 process.exit(${exitCode});
 `,
@@ -47,7 +50,7 @@ test("claude-cli runner calls claude -p headlessly with the agent's tools and pr
   assert.equal(flag("--output-format"), "json");
   assert.equal(flag("--tools"), "Read,Write");
   assert.equal(flag("--allowedTools"), "Read,Write");
-  assert.equal(flag("--append-system-prompt"), "You are the Producer.");
+  assert.equal(call.systemPrompt, "You are the Producer.");
   assert.equal(flag("--model"), "sonnet");
 });
 
@@ -58,4 +61,11 @@ test("claude-cli runner reports the agent's error", async () => {
     new ClaudeCliRunner(bin).run({ agent: "producer", systemPrompt: "", prompt: "x", cwd: dir, tools: ["Read"], expectedOutputs: [] }),
     /Agent "producer" failed: Not logged in/,
   );
+});
+
+test("arguments are quoted for the Windows shell only when needed", () => {
+  assert.equal(quoteForCmd("Read,Write"), "Read,Write");
+  assert.equal(quoteForCmd("C:\\Users\\M\\AppData\\Local\\Temp\\x\\system-prompt.md"), "C:\\Users\\M\\AppData\\Local\\Temp\\x\\system-prompt.md");
+  assert.equal(quoteForCmd("C:\\Users\\Jane Doe\\file.md"), '"C:\\Users\\Jane Doe\\file.md"');
+  assert.equal(quoteForCmd('say "hi"'), '"say ""hi"""');
 });
