@@ -1,0 +1,38 @@
+{
+  "title": "How Your Phone Knows Where You Are: GPS in 75 Seconds",
+  "topic": "How a GPS receiver works out its position by timing radio signals from satellites and turning those times into distances.",
+  "audience": "Curious general viewers, teens and up, who use GPS on their phones every day but have no technical background in physics or satellites.",
+  "goal": "The viewer understands that GPS works by measuring how long satellite signals take to arrive, converting those times into distances, and combining distances from at least four satellites to pinpoint a location.",
+  "tone": "Friendly and curious, with a light sense of wonder, clear and unhurried",
+  "targetDurationSec": 75,
+  "aspectRatio": "16:9",
+  "keyTakeaways": [
+    "GPS satellites constantly broadcast the exact time and their own position; your phone only listens, it never sends anything back.",
+    "Your receiver measures how long each signal took to arrive, and because radio travels at the speed of light, that time tells it how far away each satellite is.",
+    "One distance puts you somewhere on a sphere around a satellite; overlapping the spheres from several satellites narrows it down to a single point.",
+    "A fourth satellite is needed to correct your receiver's cheap clock, because timing errors of just a millionth of a second would put you about 300 metres off."
+  ],
+  "mustCover": [
+    "Hook: your phone finds your location to within a few metres using satellites about 20,000 km overhead",
+    "The constellation of roughly 30 GPS satellites, each carrying very precise atomic clocks",
+    "Signals carry a timestamp and the satellite's position; the receiver is passive and only listens",
+    "Travel time multiplied by the speed of light gives the distance to each satellite",
+    "Trilateration: show it first in 2D with circles, then note it works the same way with spheres in 3D",
+    "Why four satellites: three for position, one more to solve for the receiver's clock error",
+    "Close by tying it back to the blue dot on a map"
+  ],
+  "outOfScope": [
+    "Einstein's special and general relativity corrections to satellite clocks",
+    "Other systems such as Galileo, GLONASS and BeiDou, and multi-constellation receivers",
+    "Signal frequencies, codes, modulation and the structure of the navigation message",
+    "Atmospheric delay, multipath errors and correction methods like differential GPS or RTK",
+    "Assisted GPS, Wi-Fi and cell-tower positioning on phones",
+    "The history and military origins of GPS",
+    "Privacy, tracking and who controls the system"
+  ],
+  "visualStyleHints": "Clean flat vector style on a deep navy space background with a simple Earth seen from orbit. Satellites as friendly minimal icons, signals as pulsing concentric rings travelling outward. Explain trilateration on a flat map view with expanding circles in distinct colours (teal, coral, gold) whose overlap highlights the position; briefly transition to translucent spheres for the 3D point. Show clocks as simple dials or digital readouts with a small 'tick' offset to illustrate the clock error. End on a familiar map pin or blue location dot. Short on-screen labels only, no dense text or equations beyond 'distance = time x speed of light'.",
+  "voice": {
+    "kokoroVoice": "af_heart",
+    "pace": "normal"
+  }
+}

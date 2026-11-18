@@ -1,0 +1,180 @@
+{
+  "styleGuide": {
+    "visualStyle": "Clean flat 2D vector on a deep navy space background with a few small static stars. A simple flat Earth seen from orbit (blue ocean, muted green landmasses, no texture). Satellites are friendly minimal icons; signals are pulsing concentric rings travelling outward. Trilateration is shown on a flat, simplified map with expanding circles in teal, coral and gold. Clocks are simple dials or digital readouts. The user's location is always a bright blue dot (#3D8BFF) with a soft halo. Short labels only, generous spacing, smooth ease-in-out motion.",
+    "palette": {
+      "background": "#0B1A33",
+      "surface": "#1C3157",
+      "primary": "#2EC4B6",
+      "secondary": "#FF6F59",
+      "accent": "#FFC857",
+      "text": "#F4F7FB"
+    },
+    "fontFamily": "Inter (semibold for labels, bold for titles), fallback: Helvetica, Arial, sans-serif",
+    "iconStyle": "Flat minimal icons with rounded corners and 3px rounded strokes, no gradients or shadows. Satellites are a small rounded body with two rectangular solar panels; the phone is a rounded rectangle with a map screen. Use palette colours only, plus the location blue #3D8BFF for the user's dot."
+  },
+  "scenes": [
+    {
+      "id": "s01",
+      "layout": "Opens full-frame on a phone screen in the centre showing a simplified map with the blue dot. The camera then pulls back: the phone shrinks to the lower centre on a small Earth, and a satellite icon appears high in the upper right, linked to the phone by a dashed distance line with a label beside it.",
+      "visualDescription": "A familiar blue location dot pulses on a phone map, with a small accuracy ring around it. Zooming out reveals the Earth below and a satellite far overhead, with a dashed line showing how far away it is.",
+      "elements": [
+        { "id": "phone", "kind": "icon", "description": "Flat phone icon (surface colour frame) showing a simplified map with light grey streets." },
+        { "id": "blueDot", "kind": "shape", "description": "Blue location dot (#3D8BFF) with a white outline and a soft translucent accuracy halo." },
+        { "id": "earth", "kind": "shape", "description": "Simple flat Earth arc at the bottom of the frame, blue ocean with muted green land." },
+        { "id": "sat1", "kind": "icon", "description": "Friendly minimal satellite icon in teal, upper right." },
+        { "id": "distLine", "kind": "arrow", "description": "Dashed gold double-headed line from the phone up to the satellite, labelled '~20,000 km'." }
+      ],
+      "animations": [
+        { "elementId": "blueDot", "action": "pops in and pulses gently", "cue": "A blue dot on your map" },
+        { "elementId": "blueDot", "action": "accuracy halo shrinks tight around the dot", "cue": "within a few meters" },
+        { "elementId": "earth", "action": "camera pulls back as the Earth arc rises into frame", "cue": "Its secret" },
+        { "elementId": "sat1", "action": "slides in from upper right and settles", "cue": "Satellites about twenty thousand kilometers overhead" },
+        { "elementId": "distLine", "action": "draws upward from phone to satellite, then the label fades in", "cue": "twenty thousand kilometers overhead" }
+      ],
+      "onScreenText": ["Within a few metres", "~20,000 km"],
+      "transitionIn": "fade",
+      "camera": "slow-zoom-out"
+    },
+    {
+      "id": "s02",
+      "layout": "Earth centred in the frame with a ring of satellites on tilted orbit lines around it. A rounded inset card in the right third shows an atomic clock readout.",
+      "visualDescription": "The whole GPS constellation: many small satellites circling the Earth on several orbit lines. One satellite is highlighted and a card pops out showing its atomic clock with a fast-ticking digital readout.",
+      "elements": [
+        { "id": "earth", "kind": "shape", "description": "Flat Earth circle centred in frame." },
+        { "id": "orbits", "kind": "diagram", "description": "Six thin tilted elliptical orbit lines in surface colour with about 30 small teal satellite icons spaced along them." },
+        { "id": "countLabel", "kind": "label", "description": "Label '~30 satellites' in text colour, upper left." },
+        { "id": "clockCard", "kind": "diagram", "description": "Rounded surface-colour card with a gold atom symbol and a digital readout showing time to nine decimal places, e.g. 12:00:00.000000001." }
+      ],
+      "animations": [
+        { "elementId": "orbits", "action": "orbit lines draw in, then satellites pop on along them one after another", "cue": "About thirty GPS satellites" },
+        { "elementId": "countLabel", "action": "fades in", "cue": "About thirty GPS satellites" },
+        { "elementId": "orbits", "action": "satellites glide slowly along their orbits", "cue": "circle the Earth" },
+        { "elementId": "clockCard", "action": "expands out from one highlighted satellite", "cue": "carries atomic clocks" },
+        { "elementId": "clockCard", "action": "last digits of the readout tick rapidly and glow gold", "cue": "a few billionths of a second" }
+      ],
+      "onScreenText": ["~30 satellites", "Atomic clocks", "Billionths of a second"],
+      "transitionIn": "zoom",
+      "camera": "static"
+    },
+    {
+      "id": "s03",
+      "layout": "Satellite in the upper left, Earth arc at the bottom with the phone standing on it at lower right. Signal rings travel diagonally down from satellite to phone. Two small tags travel in a straight line along the invisible satellite-to-phone path, just ahead of the leading ring.",
+      "visualDescription": "A satellite sends out pulsing rings toward the phone. Two little tags, a position pin and a clock, glide straight down the satellite-to-phone path just in front of the leading ring, staying upright and readable. As they reach the phone, a small sound-wave receive badge on the phone lights up with the label 'Only listens'. A crossed-out upward arrow shows the phone sends nothing back.",
+      "elements": [
+        { "id": "sat1", "kind": "icon", "description": "Teal satellite icon, upper left." },
+        { "id": "rings", "kind": "shape", "description": "Concentric teal signal rings radiating from the satellite toward the Earth." },
+        { "id": "tags", "kind": "label", "description": "Two small upright rounded tags, a pin icon with 'Position' and a clock icon with 'Time', stacked side by side. They move in a straight line along the satellite-to-phone path, kept just in front of the leading ring; they never rotate or scale with the rings." },
+        { "id": "phone", "kind": "icon", "description": "Phone icon on the Earth arc, lower right, with one small badge: a sound-wave receive icon (three curved lines pointing into the phone) and the label 'Only listens' beside it." },
+        { "id": "noSend", "kind": "arrow", "description": "Coral upward arrow from the phone with a coral cross over it." }
+      ],
+      "animations": [
+        { "elementId": "rings", "action": "pulse outward in a steady repeating rhythm", "cue": "keeps broadcasting two things" },
+        { "elementId": "tags", "action": "'Position' tag pops in beside the satellite and starts gliding along the path just ahead of the leading ring", "cue": "where it is" },
+        { "elementId": "tags", "action": "'Time' tag pops in next to it and both keep gliding in a straight line toward the phone", "cue": "the exact time" },
+        { "elementId": "phone", "action": "tags arrive and fade into the phone; the receive badge lights up teal and 'Only listens' fades in", "cue": "Your phone only listens" },
+        { "elementId": "noSend", "action": "arrow draws up, then the cross stamps over it", "cue": "It never sends anything back" }
+      ],
+      "onScreenText": ["Position", "Time", "Only listens"],
+      "transitionIn": "cut",
+      "camera": "static"
+    },
+    {
+      "id": "s04",
+      "layout": "Left: satellite top-left with a 'Sent' clock; right: phone bottom-right with an 'Arrived' clock; a signal pulse travels the diagonal between them. The equation sits in a surface-colour banner across the bottom centre.",
+      "visualDescription": "Two digital clocks compare the departure and arrival times of one signal pulse. The tiny gap between them is highlighted, then the simple equation 'distance = time x speed of light' assembles and the travel path turns into a measured distance.",
+      "elements": [
+        { "id": "sentClock", "kind": "diagram", "description": "Digital readout next to the satellite labelled 'Sent', teal." },
+        { "id": "arrivedClock", "kind": "diagram", "description": "Digital readout next to the phone labelled 'Arrived', coral." },
+        { "id": "pulse", "kind": "shape", "description": "A single bright teal signal ring travelling from satellite to phone, leaving a faint trail." },
+        { "id": "gapLabel", "kind": "label", "description": "Gold bracket between the two clocks labelled '< 0.1 s'." },
+        { "id": "equation", "kind": "text", "description": "Banner text 'distance = time x speed of light'." }
+      ],
+      "animations": [
+        { "elementId": "sentClock", "action": "freezes and highlights as the pulse leaves", "cue": "when each signal left" },
+        { "elementId": "pulse", "action": "moves along the path from satellite to phone", "cue": "when each signal left" },
+        { "elementId": "arrivedClock", "action": "freezes and highlights as the pulse lands", "cue": "when it arrived" },
+        { "elementId": "gapLabel", "action": "bracket draws in between clocks and label fades in", "cue": "under a tenth of a second" },
+        { "elementId": "equation", "action": "words slide in one by one", "cue": "Multiply that time by the speed of light" },
+        { "elementId": "pulse", "action": "trail becomes a solid gold measured line with tick marks", "cue": "you get the distance" }
+      ],
+      "onScreenText": ["Sent", "Arrived", "< 0.1 s", "distance = time x speed of light"],
+      "transitionIn": "slide",
+      "camera": "static"
+    },
+    {
+      "id": "s05",
+      "layout": "Flat top-down simplified map filling the frame, with three small satellite markers (teal A, coral B, gold C) at different spots around the edges; circles expand from each. The final point is near the centre. A small rounded label chip sits in the upper left. For the 3D beat, the map tilts in flat 2D: it scales vertically to about 55% with a slight horizontal skew, so the map circles become flat ellipses lying on it.",
+      "visualDescription": "Trilateration on a map: a teal circle shows every spot at the first distance. A coral circle crosses it at two points. A gold circle passes through only one of them, and the blue dot appears there. Then the map tilts back (squashed vertically, slightly skewed) and each circle becomes a flat ellipse on the map, the 'equator' of a sphere. Around each equator a full upright circle outline with about 20% opacity fill appears, so each one reads as a sphere. All three still overlap at the blue dot. Everything stays flat: solid fills with opacity, no gradients or shading.",
+      "elements": [
+        { "id": "map", "kind": "map", "description": "Flat simplified map in surface colour with faint street lines and three small satellite markers: teal A, coral B, gold C. For the tilt it is transformed to about 55% vertical scale with a slight skew (about 10 degrees)." },
+        { "id": "circleA", "kind": "shape", "description": "Teal circle outline centred on marker A. In the 3D beat it becomes the sphere's thin equator ellipse on the tilted map, and gains a full-size upright teal circle silhouette (2px stroke, about 20% opacity flat fill) around it." },
+        { "id": "circleB", "kind": "shape", "description": "Coral circle outline centred on marker B, with two white intersection dots where it meets the teal circle. In the 3D beat it gets the same treatment: thin equator ellipse plus an upright coral circle with about 20% opacity fill." },
+        { "id": "circleC", "kind": "shape", "description": "Gold circle outline centred on marker C, passing through one intersection point. In the 3D beat it gets the same treatment: thin equator ellipse plus an upright gold circle with about 20% opacity fill." },
+        { "id": "blueDot", "kind": "shape", "description": "Blue location dot (#3D8BFF) with a 'You' label at the single shared point. It stays at the shared point when the map tilts." },
+        { "id": "dimLabel", "kind": "label", "description": "Small rounded surface-colour chip in the upper left whose text reads '2D: circles' and then changes to '3D: spheres'." }
+      ],
+      "animations": [
+        { "elementId": "circleA", "action": "expands outward from its satellite marker", "cue": "One distance puts you somewhere on a circle" },
+        { "elementId": "circleB", "action": "expands outward; two intersection dots blink", "cue": "Two circles cross at two points" },
+        { "elementId": "circleC", "action": "expands outward; the unmatched intersection dot fades away", "cue": "A third crosses only one of them" },
+        { "elementId": "blueDot", "action": "pops in with a pulse at the remaining point", "cue": "That's you" },
+        { "elementId": "dimLabel", "action": "fades in reading '2D: circles'", "cue": "That's you" },
+        { "elementId": "map", "action": "tilts: scales vertically to about 55% with a slight skew over about 1 second, carrying the markers, circles (now flat equator ellipses) and blue dot with it", "cue": "In real space, they're spheres" },
+        { "elementId": "circleA", "action": "upright teal circle silhouette with about 20% opacity fill grows out around its equator ellipse; coral and gold follow with a short stagger", "cue": "they're spheres" },
+        { "elementId": "dimLabel", "action": "text cross-fades from '2D: circles' to '3D: spheres'", "cue": "In real space, they're spheres" },
+        { "elementId": "blueDot", "action": "gentle pulse where all three spheres overlap", "cue": "it works the same way" }
+      ],
+      "onScreenText": ["You", "2D: circles", "3D: spheres"],
+      "transitionIn": "wipe",
+      "camera": "slow-zoom-in"
+    },
+    {
+      "id": "s06",
+      "layout": "Title question at top centre. Centre-right: the same tilted map from the end of s05 (about 55% vertical scale, slight skew) with the same three satellite markers A, B and C and their rings drawn as flat ellipses. Lower left: a small rounded surface-colour inset card holding the phone and its cheap clock dial. A fourth satellite marker enters the tilted map from the right edge.",
+      "visualDescription": "We stay in the tilted map view from s05, showing just the three flat ellipse rings so it is easy to read; the blue dot is replaced by a faint dashed outline marking the true spot. In the inset, the phone's cheap clock slips by a tiny coral tick. All three rings grow by the same amount and still meet at one point, but it is a hollow 'ghost' dot that has slid about 300 m away from the true spot. The rings pulse together because they share the same error. A white fourth satellite slides in, and its ring clearly misses the ghost dot, leaving a small coral gap. The clock hand nudges back, all four rings shrink together and meet at a single point on the true spot, where the blue dot pops in with 'Clock fixed'.",
+      "elements": [
+        { "id": "question", "kind": "text", "description": "Title 'Why 4 satellites?' at top centre." },
+        { "id": "clockInset", "kind": "diagram", "description": "Small rounded surface-colour card, lower left: phone icon beside a simple analogue clock dial. A small coral 'tick' offset wedge beside the hand shows it slightly off, with a tiny '1 µs off' label under the dial." },
+        { "id": "rings", "kind": "diagram", "description": "The tilted s05 map with satellite markers A (teal), B (coral) and C (gold), each with its distance ring drawn as a flat ellipse in its colour (3px stroke, no fill). A faint dashed white outline circle marks the true spot where the blue dot was in s05." },
+        { "id": "ghostDot", "kind": "shape", "description": "Hollow coral-outlined dot where the three grown rings meet, with a thin dashed coral line back to the true spot and the label '~300 m off'." },
+        { "id": "sat4", "kind": "icon", "description": "Fourth satellite marker in text colour (white) with its own white flat ellipse ring on the tilted map. When it first appears its ring passes just beside the ghost dot, and a short coral bracket highlights the gap." },
+        { "id": "blueDot", "kind": "shape", "description": "Blue location dot (#3D8BFF) on the true spot, with a 'Clock fixed' label beside it." }
+      ],
+      "animations": [
+        { "elementId": "question", "action": "types in", "cue": "why four satellites" },
+        { "elementId": "clockInset", "action": "dial wobbles and its hand jitters", "cue": "Your phone's clock is cheap" },
+        { "elementId": "clockInset", "action": "coral tick offset wedge appears beside the hand and '1 µs off' fades in", "cue": "a millionth of a second off" },
+        { "elementId": "rings", "action": "all three ellipse rings grow by the same amount and still meet at one shared point", "cue": "three hundred meters wrong" },
+        { "elementId": "ghostDot", "action": "hollow ghost dot appears at the meeting point, slides about 300 m away from the dashed true spot, then the dashed line and '~300 m off' label draw in", "cue": "three hundred meters wrong" },
+        { "elementId": "rings", "action": "all three rings pulse together in sync", "cue": "every distance is off equally" },
+        { "elementId": "sat4", "action": "slides in from the right edge and its white ring expands; it misses the ghost dot and the small coral gap bracket blinks", "cue": "A fourth satellite" },
+        { "elementId": "clockInset", "action": "clock hand nudges back into place and the coral tick fades out", "cue": "lets the phone fix its clock" },
+        { "elementId": "rings", "action": "all four rings, including the white one, shrink together to meet at one point on the true spot; ghost dot, dashed line and '~300 m off' label fade out", "cue": "until the spheres meet" },
+        { "elementId": "blueDot", "action": "pops in at the meeting point with a pulse, then 'Clock fixed' fades in", "cue": "until the spheres meet" }
+      ],
+      "onScreenText": ["Why 4 satellites?", "1 µs off", "~300 m off", "Clock fixed"],
+      "transitionIn": "fade",
+      "camera": "static"
+    },
+    {
+      "id": "s07",
+      "layout": "Phone map in the centre with the blue dot moving along a street. For the recap, three short labels line up in a row across the bottom third, connected by arrows.",
+      "visualDescription": "Back on the phone map, the blue dot glides smoothly along a street as tiny signal rings keep arriving. Then a three-step recap appears beneath: satellites send time, time becomes distance, four distances find you, ending on the pulsing blue dot.",
+      "elements": [
+        { "id": "phoneMap", "kind": "map", "description": "Phone screen map with a curving street, centred." },
+        { "id": "blueDot", "kind": "shape", "description": "Blue location dot (#3D8BFF) with soft halo." },
+        { "id": "recap", "kind": "diagram", "description": "Three rounded chips in a row connected by small arrows: teal 'Satellites send time', coral 'Time = distance', gold '4 distances = you'." }
+      ],
+      "animations": [
+        { "elementId": "phoneMap", "action": "faint signal rings keep pulsing onto the map from above", "cue": "repeats this nonstop" },
+        { "elementId": "blueDot", "action": "moves along the street path", "cue": "the blue dot follows you" },
+        { "elementId": "recap", "action": "first chip slides in", "cue": "satellites send the time" },
+        { "elementId": "recap", "action": "arrow draws and second chip slides in", "cue": "time becomes distance" },
+        { "elementId": "recap", "action": "arrow draws and third chip slides in, then the blue dot gives a final pulse", "cue": "four distances find you" }
+      ],
+      "onScreenText": ["Satellites send time", "Time = distance", "4 distances = you"],
+      "transitionIn": "zoom",
+      "camera": "slow-zoom-in"
+    }
+  ]
+}

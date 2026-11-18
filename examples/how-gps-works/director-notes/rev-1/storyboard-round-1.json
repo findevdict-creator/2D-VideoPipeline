@@ -1,0 +1,21 @@
+{
+  "verdict": "revise",
+  "summary": "A strong, well-paced storyboard. The style guide is consistent and fits the brief, the palette and blue-dot motif carry through every scene, the cues land on the right words, and s01 to s05 and s07 make their narration clearer. One fix is needed before this goes to the producer: s06, the trickiest idea in the video, shows the clock error happening the wrong way round and in a layout that is hard to read and to build. Two smaller build notes for s05 and s03 can go in the same pass.",
+  "notes": [
+    {
+      "sceneId": "s06",
+      "issue": "The visual logic does not match how the clock fix works. The storyboard shows three spheres that miss each other before the fourth satellite arrives, and then the fourth makes them meet. In fact, three equally wrong distances still meet at one point. That point is just in the wrong place, and the fourth sphere is what shows the mismatch. The layout also adds a new perspective sphere view, built around the location instead of the satellites, beside a separate phone and clock. That is a third way of drawing the geometry and hard to follow in 16.8 seconds.",
+      "suggestion": "Reuse the tilted s05 view (circles drawn as flat ellipses around the same three satellite markers) and keep the phone and cheap clock as a small inset on the left. Beats: on 'a millionth of a second off', the clock gets its coral tick offset. On 'three hundred meters wrong', all three rings grow by the same amount and meet at a hollow 'ghost' dot that slides about 300 m away from the true spot, with the '~300 m off' label. On 'every distance is off equally', the three rings pulse together. On 'A fourth satellite', the white satellite slides in and its ring clearly misses the ghost dot, leaving a small coral gap. On 'until the spheres meet', the clock hand nudges back, all four rings shrink together to meet at one point, the blue dot pops in there and 'Clock fixed' appears. This is correct, matches the narration and stays in the visual language viewers learned in s05."
+    },
+    {
+      "sceneId": "s05",
+      "issue": "The 3D beat ('map tilts while circles inflate into translucent spheres') is the hardest effect in the video to build in flat 2D, and true sphere shading would break the no-gradients rule. The on-screen labels '2D: circles' and '3D: spheres' also have no animation cues.",
+      "suggestion": "Spell out a flat-2D version. Tilt the map by scaling it vertically to about 55% with a slight skew. Draw each sphere as a flat circle with about 20% opacity fill, plus a thinner ellipse across its middle (an 'equator') to suggest volume, so all three overlap at the blue dot. Add cues: '2D: circles' fades in on 'That's you', and it changes to '3D: spheres' on 'In real space, they're spheres'."
+    },
+    {
+      "sceneId": "s03",
+      "issue": "Tags 'riding on' rings that keep expanding are awkward to animate, because the rings grow and the tags would drift or warp. The phone badge is also described two ways ('ear-like listening icon' and 'sound-wave badge').",
+      "suggestion": "Have each tag ride along the satellite-to-phone path just in front of the leading ring, so they move in a straight line and stay readable. Use one badge: a small sound-wave or receive icon on the phone, labelled 'Only listens'."
+    }
+  ]
+}

@@ -1,0 +1,86 @@
+{
+  "title": "How Your Phone Knows Where You Are: GPS in 75 Seconds",
+  "scenes": [
+    {
+      "id": "s01",
+      "title": "The Blue Dot's Secret",
+      "purpose": "Hook the viewer with the everyday blue dot and the surprising distance to the satellites behind it.",
+      "narration": "A blue dot on your map knows where you are, often within a few meters. Its secret? Satellites about twenty thousand kilometers overhead.",
+      "estimatedDurationSec": 9.2,
+      "sources": [
+        "https://www.gps.gov/systems/gps/performance/accuracy/",
+        "https://www.gps.gov/systems/gps/space"
+      ]
+    },
+    {
+      "id": "s02",
+      "title": "Thirty Satellites, Atomic Clocks",
+      "purpose": "Introduce the constellation and the very precise clocks each satellite carries.",
+      "narration": "About thirty GPS satellites circle the Earth. Each one carries atomic clocks, accurate to a few billionths of a second.",
+      "estimatedDurationSec": 8,
+      "sources": [
+        "https://www.nasa.gov/specials/what-is-gps",
+        "https://archive.gps.gov/systems/gps/space/",
+        "https://en.wikipedia.org/wiki/Pseudorange"
+      ]
+    },
+    {
+      "id": "s03",
+      "title": "Your Phone Only Listens",
+      "purpose": "Explain what the signal carries and that the receiver is passive, correcting the 'phone pings satellites' myth.",
+      "narration": "Each satellite keeps broadcasting two things: where it is, and the exact time. Your phone only listens. It never sends anything back.",
+      "estimatedDurationSec": 8.8,
+      "sources": [
+        "https://www.nasa.gov/specials/what-is-gps",
+        "https://www.e-education.psu.edu/geog862/node/1732",
+        "https://www.iflscience.com/your-sat-nav-does-not-ping-any-satellites-so-how-does-gps-actually-work-75331"
+      ]
+    },
+    {
+      "id": "s04",
+      "title": "Time Becomes Distance",
+      "purpose": "Show how travel time multiplied by the speed of light gives the distance to each satellite.",
+      "narration": "Your phone compares when each signal left with when it arrived. That's under a tenth of a second. Multiply that time by the speed of light, and you get the distance.",
+      "estimatedDurationSec": 12.4,
+      "sources": [
+        "https://www.seos-project.uni-oldenburg.de/GPS/GPS-c01-p02.html",
+        "https://www.britannica.com/technology/GPS",
+        "https://physics.nist.gov/cuu/Constants/Value/c.html"
+      ]
+    },
+    {
+      "id": "s05",
+      "title": "Circles That Cross",
+      "purpose": "Demonstrate trilateration with overlapping circles on a flat map, then extend the idea to spheres in 3D.",
+      "narration": "One distance puts you somewhere on a circle. Two circles cross at two points. A third crosses only one of them. That's you. In real space, they're spheres, but it works the same way.",
+      "estimatedDurationSec": 13.2,
+      "sources": [
+        "https://www.seos-project.uni-oldenburg.de/GPS/GPS-c01-p02.html",
+        "https://www.scienceabc.com/innovation/how-does-satellite-navigation-work"
+      ]
+    },
+    {
+      "id": "s06",
+      "title": "Why Four Satellites",
+      "purpose": "Explain that the phone's cheap clock adds a shared error, and a fourth satellite lets it solve for that error.",
+      "narration": "So why four satellites? Your phone's clock is cheap. Just a millionth of a second off puts you about three hundred meters wrong. But every distance is off equally. A fourth satellite lets the phone fix its clock until the spheres meet.",
+      "estimatedDurationSec": 16.8,
+      "sources": [
+        "https://en.wikipedia.org/wiki/Pseudorange",
+        "https://www.gnss.ca/gnss/1321-step-4-computation",
+        "https://usq.pressbooks.pub/gpsandgnss/?p=291"
+      ]
+    },
+    {
+      "id": "s07",
+      "title": "Back to the Blue Dot",
+      "purpose": "Tie the process back to the moving blue dot and give a one-line recap.",
+      "narration": "Your phone repeats this nonstop, so the blue dot follows you. So remember: satellites send the time, time becomes distance, and four distances find you.",
+      "estimatedDurationSec": 9.6,
+      "sources": [
+        "https://www.scienceabc.com/innovation/how-does-satellite-navigation-work",
+        "https://www.gps.gov/systems/gps/performance/accuracy/"
+      ]
+    }
+  ]
+}
