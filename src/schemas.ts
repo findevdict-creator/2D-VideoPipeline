@@ -107,3 +107,40 @@ export type Storyboard = z.infer<typeof StoryboardSchema>;
 export function schemaForPrompt(schema: z.ZodType): string {
   return JSON.stringify(z.toJSONSchema(schema), null, 2);
 }
+
+export const VoiceoverSchema = z.object({
+  settings: z.object({
+    engine: z.string(),
+    voice: z.string(),
+    language: z.string(),
+    speed: z.number(),
+    padBeforeSec: z.number(),
+    padAfterSec: z.number(),
+    sampleRate: z.number().int(),
+  }),
+  totalDurationSec: z.number(),
+  fullAudioFile: z.string().describe("All scenes joined, relative to the production folder"),
+  scenes: z.array(
+    z.object({
+      id: sceneId,
+      audioFile: z.string().describe("Relative to the production folder"),
+      /** The scene's length, including the pauses. Animation uses this as the scene duration. */
+      durationSec: z.number(),
+      speechStartSec: z.number(),
+      speechEndSec: z.number(),
+      spokenText: z.string().describe("The narration after respellings, as Kokoro read it"),
+      cacheKey: z.string().describe("Changes when anything that affects this scene's audio changes"),
+      words: z.array(z.object({ text: z.string(), startSec: z.number(), endSec: z.number() })),
+      cues: z.array(
+        z.object({
+          elementId: z.string(),
+          cue: z.string(),
+          startSec: z.number(),
+          endSec: z.number(),
+          match: z.enum(["exact", "estimated"]),
+        }),
+      ),
+    }),
+  ),
+});
+export type Voiceover = z.infer<typeof VoiceoverSchema>;

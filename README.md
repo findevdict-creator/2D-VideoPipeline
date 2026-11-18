@@ -2,12 +2,12 @@
 
 An automated pipeline that turns a prompt into a 2D animated explainer video, with a team of AI agents doing the work and a human approving each stage.
 
-**Status:** Phase 1 (pre-production) is built. Voiceover (Kokoro) and animation and render (Remotion) come next.
+**Status:** Pre-production and voiceover (Kokoro) are built. Animation and render (Remotion) come next.
 
 ## How it works
 
 ```
-prompt ─▶ Brief ─▶ [you approve] ─▶ Research + Script ─▶ [you approve] ─▶ Storyboard ─▶ [you approve]
+prompt ─▶ Brief ─▶ [you approve] ─▶ Research + Script ─▶ [you approve] ─▶ Storyboard ─▶ [you approve] ─▶ Voiceover ─▶ [you approve]
             │                          │        ▲                             │      ▲
          Producer             Researcher, Scriptwriter                 Storyboard artist
                                        └─ Director review ┘                   └ Director ┘
@@ -27,6 +27,36 @@ The pipeline code runs the stages in a fixed order and stops at every approval. 
 
 Every file is validated against a schema in [`src/schemas.ts`](src/schemas.ts). If an agent writes an invalid file, it gets the errors and is asked to fix it. The storyboard is also checked against the script: the scene ids must match, and every animation cue must be a phrase the narrator actually says, so the visuals can be timed to the voice in a later phase.
 
+## Voiceover
+
+After you approve the storyboard, the Voiceover stage records the narration with [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M), a free text-to-speech model that runs on your own computer. No AI agent is involved, so it costs nothing.
+
+1. **Respellings.** Words listed in `pronunciations.json` are replaced with how they should be said, for example `"GPS": "G P S"`. Matching is whole-word and case-sensitive. Add your own.
+2. **One audio file per scene.** `voice/s01.wav`, `voice/s02.wav` and so on, each with a short pause before and after, plus `voice/full.wav` with every scene joined so you can listen to the whole video.
+3. **Timings.** `voiceover.json` records each scene's real length and when every word is spoken, and finds when each storyboard cue phrase is said. The animation stage uses this to sync visuals to the voice. A cue that cannot be found in the spoken words gets an estimated time, and the review lists it.
+
+At the review you see each scene's real length next to the script's estimate. To change something, edit and choose **e**: the voice or pace for this video in `brief.json`, base speed and pauses in `pipeline.config.json`, respellings in `pronunciations.json`, or wording in `script.json`. Or choose **r** and describe wording changes; the Scriptwriter edits only those scenes. Only scenes whose text or voice settings changed are recorded again, and if the new wording breaks a storyboard cue, the Storyboard artist updates it.
+
+### Settings
+
+All settings live in [`pipeline.config.json`](pipeline.config.json). The voice and pace in a video's `brief.json` override the defaults for that video.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `voice.engine` | `kokoro` | `mock` writes silent audio, for testing. `--runner mock` uses it automatically |
+| `voice.voice` | `af_heart` | Default Kokoro voice. The Producer puts it in each brief unless your request asks for another |
+| `voice.speed` | `1.0` | Base speaking speed |
+| `voice.paceSpeed` | slow `0.9`, normal `1.0`, fast `1.1` | The brief's pace multiplies the base speed by these |
+| `voice.language` | `auto` | Picked from the voice name (`af_`/`am_` American English, `bf_`/`bm_` British). Or set `en-us`, `en-gb`, or a Kokoro code |
+| `voice.padBeforeSec`, `voice.padAfterSec` | `0.3`, `0.3` | Silence before and after each scene |
+| `voice.sampleRate` | `24000` | Kokoro speaks at 24000 Hz; other rates are resampled |
+| `voice.pronunciationsFile` | `pronunciations.json` | The respelling list |
+| `voice.timing` | `kokoro` | Where word timings come from. Whisper alignment can be added if Kokoro's timings prove too rough |
+| `voice.python` | empty | Python to run Kokoro with. Empty means the one `setup:voice` installed |
+| `voice.auditionVoices`, `voice.auditionText` | 7 voices, one sentence | What the `voices` command plays |
+
+The file also holds `runner`, `model` and `maxDirectorRounds`. Environment variables (`PIPELINE_RUNNER`, `PIPELINE_MODEL`, `PIPELINE_PYTHON`, `PIPELINE_VOICE_ENGINE`) and command-line flags override the file. `PIPELINE_CONFIG` points to a different config file.
+
 ## Running agents: three runners
 
 Each agent is a Claude Code session with its own role, tools and task. How those sessions run is a setting:
@@ -45,6 +75,16 @@ You need Node 20 or later, and for the default runner, [Claude Code](https://cod
 
 ```bash
 npm install
+npm run setup:voice     # once: installs Kokoro for the voiceover
+```
+
+`setup:voice` needs Python 3.10, 3.11 or 3.12 (Kokoro does not support 3.13 yet). It creates a private environment in `.venv-voice/`, installs Kokoro, and makes a test clip. The first run downloads the Kokoro model, about 330 MB. If the test clip fails on Windows, install [espeak-ng](https://github.com/espeak-ng/espeak-ng/releases) (the `.msi`) and run it again.
+
+Then pick a voice by ear:
+
+```bash
+npm run pipeline -- voices                       # writes voice-auditions/<voice>.wav for each audition voice
+npm run pipeline -- voices --text "Your own sentence"
 ```
 
 On Windows, check that `claude --version` prints a version in the same terminal (PowerShell or Command Prompt). If Claude Code is installed but not on your PATH, point the pipeline at it, for example `$env:CLAUDE_BIN = "C:\Users\you\.local\bin\claude.exe"` in PowerShell.
@@ -91,6 +131,8 @@ productions/<id>/
   script.json        Scriptwriter
   storyboard.json    Storyboard artist
   director-notes/    Director reviews, per revision and round
+  voice/             Kokoro audio: s01.wav, s02.wav, ... and full.wav
+  voiceover.json     real scene lengths, word timings and cue timings
   history/           earlier versions, saved before each revision
   logs/              one record per agent run, with its prompt, reply and reported cost
   state.json         which stages are approved
@@ -99,7 +141,7 @@ productions/<id>/
 ## Development
 
 ```bash
-npm test            # pipeline flow, revisions, pause and resume, validation, claude-cli runner
+npm test            # pipeline flow, revisions, pause and resume, validation, claude-cli runner, voiceover
 npm run typecheck
 ```
 
@@ -110,9 +152,10 @@ Code map:
 - `src/pipeline.ts`: runs stages in order with approvals, revisions, and pause and resume
 - `src/runners/`: the three ways to run an agent
 - `src/schemas.ts`: the file formats shared between agents
+- `src/voice/` and `voice/kokoro_tts.py`: respellings, cue timing, and the bridge to Kokoro
 
 ## Roadmap
 
 1. **Pre-production** (done): prompt to approved storyboard
-2. **Voiceover**: Kokoro text-to-speech per scene; real audio lengths set scene durations
+2. **Voiceover** (done): Kokoro text-to-speech per scene; real audio lengths set scene durations
 3. **Animation and render**: Remotion project and an Animator agent that writes, test-renders and fixes each scene; preview, captions and final MP4

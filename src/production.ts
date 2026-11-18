@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import type { PipelineConfig } from "./config.js";
 
-export const STAGE_IDS = ["brief", "script", "storyboard"] as const;
+export const STAGE_IDS = ["brief", "script", "storyboard", "voiceover"] as const;
 export type StageId = (typeof STAGE_IDS)[number];
 
 export type StageStatus = "pending" | "in_progress" | "awaiting_approval" | "approved";
@@ -39,6 +39,8 @@ export interface ProductionState {
  *     script.json          Scriptwriter
  *     storyboard.json      Storyboard artist
  *     director-notes/      Director reviews, one file per round
+ *     voice/               Kokoro audio: one file per scene, plus full.wav
+ *     voiceover.json       real scene lengths, word timings and cue timings
  *     history/             earlier versions, saved before each revision
  *     logs/                one record per agent run
  *     state.json           which stages are approved
@@ -70,7 +72,7 @@ export class Production {
 
     const stamp = now.toISOString();
     const fresh = (): StageState => ({ status: "pending", revision: 1, humanNotes: [] });
-    const stages: Record<StageId, StageState> = { brief: fresh(), script: fresh(), storyboard: fresh() };
+    const stages = Object.fromEntries(STAGE_IDS.map((id) => [id, fresh()])) as Record<StageId, StageState>;
     const production = new Production(dir, {
       id,
       createdAt: stamp,
@@ -88,7 +90,10 @@ export class Production {
     const dir = path.join(config.productionsDir, id);
     const file = path.join(dir, "state.json");
     if (!existsSync(file)) throw new Error(`No production called "${id}" in ${config.productionsDir}`);
-    return new Production(dir, JSON.parse(await fs.readFile(file, "utf8")));
+    const state: ProductionState = JSON.parse(await fs.readFile(file, "utf8"));
+    // Productions made before a stage existed get that stage added as pending.
+    for (const stage of STAGE_IDS) state.stages[stage] ??= { status: "pending", revision: 1, humanNotes: [] };
+    return new Production(dir, state);
   }
 
   static async list(config: PipelineConfig): Promise<ProductionState[]> {
