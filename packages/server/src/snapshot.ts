@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { listRenders } from "@studio/core/studio/assemble";
+import { listRenders, scenesChangedSince } from "@studio/core/studio/assemble";
 import type { Studio } from "@studio/core/studio/studio";
 import { referenceKeyframes } from "@studio/core/studio/assets/keyframes";
 import { findAsset, listAssets, listProjectReferences, listSceneReferences } from "@studio/core/studio/store/assets";
@@ -178,8 +178,7 @@ export function projectSnapshot(studio: Studio, orchestrator: Orchestrator, idOr
     chapters: listChapters(studio, project.id).map((c) => {
       // The newest video made of this chapter alone, and whether its scenes have changed since.
       const preview = renders.find((r) => r.scope === c.id);
-      const now = scenes.filter((s) => s.chapterId === c.id);
-      const current = preview !== undefined && preview.sceneVersions.length === now.filter((s) => s.currentVersionId).length && preview.sceneVersions.every((v) => now.some((s) => s.currentVersionId === v.versionId));
+      const current = preview !== undefined && scenesChangedSince(studio, preview) === 0;
       return { ...c, preview: preview ? { url: fileUrl(studio, project, preview.path), durationSec: preview.durationSec, createdAt: preview.createdAt, scenes: preview.sceneVersions.length, current } : null };
     }),
     scenes: scenes.map((s) => sceneCard(studio, project, s)),
@@ -204,7 +203,8 @@ export function projectSnapshot(studio: Studio, orchestrator: Orchestrator, idOr
     }),
     runs: listRuns(studio, project.id, { limit: 60 }),
     jobs: studio.db.all("SELECT id, kind, target_id AS targetId, status, progress, error, queued_at AS queuedAt FROM jobs WHERE project_id = ? ORDER BY queued_at DESC, id DESC LIMIT 30", [project.id]),
-    renders: renders.map((r) => ({ ...r, url: fileUrl(studio, project, r.path), srtUrl: fileUrl(studio, project, r.srtPath) })),
+    /** `changed` counts the scenes that are different now from the ones in the video. */
+    renders: renders.map((r) => ({ ...r, url: fileUrl(studio, project, r.path), srtUrl: fileUrl(studio, project, r.srtPath), changed: scenesChangedSince(studio, r) })),
     /** The shapes the video can be exported in, each with the frame it would get. */
     exportFormats: (Object.keys(EXPORT_FORMATS) as ExportFormat[]).map((format) => ({
       format,

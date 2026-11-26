@@ -396,8 +396,20 @@ test("from a description to a finished video: plan, build, review, revise one sc
   assert.equal(video.frames, preview.render.sceneVersions.reduce((n, s) => n + s.frames, 0));
   assert.ok(fs.existsSync(p.abs(preview.render.srtPath!)));
 
+  assert.throws(() => o.approveStage(project.id), /final video has not been rendered/);
   const final = await o.assemble(project.id, { quality: "final" });
   assert.equal((await probe(final.file)).width, project.width);
+  assert.deepEqual(o.stageStatus(project.id).waitingOn, []);
+
+  // A change asked for this late: the video cannot be marked finished with the old scene in it.
+  o.reviseScene(scenes[0]!.id, "Hold the last frame a little longer");
+  await o.idle();
+  assert.throws(() => o.approveStage(project.id), /1 of 3 scenes are not approved yet[\s\S]*1 scene has changed since the final video was rendered/);
+  o.approveScene(scenes[0]!.id);
+  assert.deepEqual(o.stageStatus(project.id).waitingOn, ["1 scene has changed since the final video was rendered. Render it again."]);
+  const again = await o.assemble(project.id, { quality: "final" });
+  assert.equal(again.rendered, 1, "only the changed scene is rendered again");
+  assert.equal(again.render.sceneVersions[0]!.version, 2);
   assert.equal(o.approveStage(project.id).stage, "done");
   studio.close();
 });

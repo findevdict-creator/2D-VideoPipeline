@@ -60,6 +60,18 @@ export function listRenders(studio: Studio, projectId: string): Render[] {
   return fromRows<Render>(studio.db.all("SELECT * FROM renders WHERE project_id = ? ORDER BY created_at DESC", [projectId]));
 }
 
+/**
+ * How many scenes a video no longer matches: scenes that got a new version, were rolled
+ * back, were added or were removed after it was made. Zero means the video is up to date.
+ */
+export function scenesChangedSince(studio: Studio, render: Render): number {
+  const now = listScenes(studio, render.projectId).filter((s) => s.currentVersionId && (render.scope === "project" || s.chapterId === render.scope));
+  const inVideo = new Set(render.sceneVersions.map((v) => v.versionId));
+  const changed = now.filter((s) => !inVideo.has(s.currentVersionId!)).length;
+  const gone = render.sceneVersions.filter((v) => !now.some((s) => s.id === v.sceneId)).length;
+  return changed + gone;
+}
+
 /** One scene's place in a video being joined. */
 export interface ClipPart {
   scene: Scene;

@@ -1028,6 +1028,7 @@ function VideoTab({ snap, slug, onOpenScenes }: { snap: Snapshot; slug: string; 
             <h3>{r.scope !== "project" ? `Preview of chapter ${snap.chapters.find((c) => c.id === r.scope)?.position ?? ""}` : r.kind === "final" ? "Final video" : "Preview"}</h3>
             <span className="muted small">
               {duration(r.durationSec)} · {r.sceneVersions.length} scenes · {ago(r.createdAt)}
+              {r.changed > 0 && ` · ${r.changed === 1 ? "1 scene" : `${r.changed} scenes`} changed since`}
             </span>
             <span className="grow" />
             {r.url && (
