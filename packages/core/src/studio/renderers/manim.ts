@@ -251,13 +251,15 @@ export class ManimRenderer implements Renderer {
     }
     // Older drawings of this scene are no use once its code or narration has changed.
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isDirectory() && /^[0-9a-f]{16}-\d+x\d+$/.test(entry.name) && !entry.name.startsWith(key)) fs.rmSync(path.join(dir, entry.name), { recursive: true, force: true });
+      if (entry.isDirectory() && /^[0-9a-f]{16}-\d+x\d+(\.media)?$/.test(entry.name) && !entry.name.startsWith(key)) fs.rmSync(path.join(dir, entry.name), { recursive: true, force: true });
     }
     ctx.log(`Manim is drawing "${ctx.scene.title}" at ${width}x${height}.`);
     onProgress(0.02);
+    // Its own working folder, so a preview and a final render of one scene can be drawn at the same time.
+    const mediaDir = `${outDir}.media`;
     const answer = await runManim(
       ctx.studio.config,
-      { mode: "render", source: ctx.sourceFile, data: dataFile, mediaDir: path.join(dir, "media"), output: file, width, height, latex: this.latex(ctx.studio) },
+      { mode: "render", source: ctx.sourceFile, data: dataFile, mediaDir, output: file, width, height, latex: this.latex(ctx.studio) },
       dir,
       ctx.studio.config.render.manim.timeoutSec,
     );
@@ -265,7 +267,7 @@ export class ManimRenderer implements Renderer {
     const needed = ctx.data.scenes[0]!.durationInFrames;
     if (answer.frames < needed) throw new Error(`Manim drew ${answer.frames} frames but the narration needs ${needed}.`);
     fs.writeFileSync(resultFile, JSON.stringify({ frames: answer.frames, warnings: answer.warnings ?? [] }));
-    fs.rmSync(path.join(dir, "media"), { recursive: true, force: true });
+    fs.rmSync(mediaDir, { recursive: true, force: true });
     return { file, frames: answer.frames };
   }
 

@@ -170,7 +170,7 @@ test("without LaTeX, equations are shown as plain text and the check says so", n
   // LaTeX switched off behaves as on a machine that does not have it.
   const studio = await tempStudio({ render: { browserExecutable: BROWSER, manim: { python: MANIM.python, timeoutSec: 600, latex: "off" } } });
   const code = body(`
-equation = MathTex("a^2", "+", "b^2", "=", r"\\\\frac{c^4}{c^2}", font_size=96).move_to(safe.center)
+equation = MathTex("a^2", "+", "b^2", "=", r"\\frac{c^4}{c^2}", font_size=96).move_to(safe.center)
 equation[0].set_color("#FF0000")
 axes = Axes(x_range=[0, 3, 1], y_range=[0, 2, 1], x_length=4, y_length=2).add_coordinates().to_corner(UL)
 self.add(equation, axes, DecimalNumber(3.14).to_corner(UR))
@@ -179,7 +179,8 @@ self.wait_until("sat")
   const { project, scene } = manimScene(studio, code);
   assert.deepEqual(await checkScene(studio, scene.id), [], "plain-text equations do not stop the scene");
   const notes = currentVersion(studio, getScene(studio, scene.id))!.checkNotes.join("\n");
-  assert.match(notes, /LaTeX is switched off[^.]*shown as plain text in the video's font, for example "a\^2 \+ b\^2 = \\frac\{c\^4\}\{c\^2\}"/);
+  // "Switched off" where LaTeX is installed, "not installed" where it is not: the picture is the same.
+  assert.match(notes, /LaTeX is (switched off|not installed)[\s\S]*shown as plain text in the video's font, for example "a\^2 \+ b\^2 = \\frac\{c\^4\}\{c\^2\}"/);
 
   const [still] = await renderSceneStills(studio, scene.id, { frames: [30] });
   const file = projectPaths(studio, project).abs(still!.file);
