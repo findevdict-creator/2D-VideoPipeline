@@ -185,7 +185,14 @@ A long video can use more of your Claude plan than one limit window allows. When
 - "Try now" in the banner ends the wait early, which is useful after you raised your limit.
 - A short overload on Claude's side is treated the same way, with a shorter wait.
 
-If you close the studio while runs are waiting or working, they stop. What they saved is kept, the scenes they were building are marked as failed with that reason, and "Build the remaining scenes" starts them again. A terminal command run while the GUI is open leaves the GUI's work alone.
+If you close the studio while runs are waiting or working (Ctrl+C, closing its window, or turning the computer off), they stop, and everything they saved is kept. When you start the studio again, it picks up from there:
+
+- **Claude was working on a stage** (outline, bible, shared parts, a scene list): the stage says the studio was closed before Claude finished, and **Continue** resumes the same Claude session, which looks at what it already saved and carries on.
+- **Claude was building or changing a scene**: the scene shows **Continue building**, which resumes that session with your notes. "Build the remaining scenes" does the same for every such scene.
+- **A scene was rendering** after Claude had handed it over: the scene is marked out of date, and "Render it again" draws it without a Claude run.
+- **A preview, the final video or an export was being made**: it shows as stopped, and you start it again. Scene clips that were already finished are reused.
+
+Stopping a run yourself with Stop is different: building it again starts fresh. A terminal command run while the GUI is open leaves the GUI's work alone.
 
 ## Command line
 

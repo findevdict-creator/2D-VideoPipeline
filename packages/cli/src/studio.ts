@@ -414,6 +414,9 @@ async function serveStudio(values: { workspace?: string; runner?: string; model?
     const stop = () => resolve();
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
+    // Closing the terminal window: SIGHUP everywhere, and Ctrl+Break on Windows. Both still get a tidy stop.
+    process.once("SIGHUP", stop);
+    if (process.platform === "win32") process.once("SIGBREAK", stop);
   });
   await server.close();
   // Claude runs started from here end with the studio. What they saved stays, and they can be started again.

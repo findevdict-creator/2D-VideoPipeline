@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { REPO_ROOT } from "../../paths.js";
@@ -41,6 +41,18 @@ export interface StudioRunResult {
 export interface StudioRunner {
   readonly kind: string;
   run(studio: Studio, request: StudioRunRequest): Promise<StudioRunResult>;
+}
+
+/**
+ * Stop a Claude Code process and what it started. On Windows it runs inside a command shell,
+ * and stopping only the shell would leave Claude working, so the whole tree is ended.
+ */
+export function stopProcess(child: ChildProcess) {
+  if (process.platform === "win32" && child.pid) {
+    spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+  } else {
+    child.kill();
+  }
 }
 
 export const MCP_ENTRY = path.join(REPO_ROOT, "packages", "mcp", "src", "server.ts");
@@ -109,7 +121,7 @@ export class ClaudeCliStudioRunner implements StudioRunner {
       const child = windows
         ? spawn([this.claudeBin, ...args].map(quoteForCmd).join(" "), { cwd: req.cwd, shell: true, stdio: ["pipe", "pipe", "pipe"], windowsHide: true })
         : spawn(this.claudeBin, args, { cwd: req.cwd, stdio: ["pipe", "pipe", "pipe"] });
-      const abort = () => child.kill();
+      const abort = () => stopProcess(child);
       req.signal?.addEventListener("abort", abort, { once: true });
 
       let buffer = "";

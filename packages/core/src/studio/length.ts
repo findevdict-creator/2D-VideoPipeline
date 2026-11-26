@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { quoteForCmd } from "../runners/claudeCli.js";
+import { stopProcess } from "./runs/runner.js";
 import { MAX_DURATION_SEC, MIN_DURATION_SEC } from "./model/project.js";
 import type { Studio } from "./studio.js";
 
@@ -89,10 +90,10 @@ function askClaude(studio: Studio, prompt: string, signal?: AbortSignal): Promis
     const child = windows
       ? spawn([bin, ...args].map(quoteForCmd).join(" "), { cwd: studio.workspaceDir, shell: true, stdio: ["pipe", "pipe", "pipe"], windowsHide: true })
       : spawn(bin, args, { cwd: studio.workspaceDir, stdio: ["pipe", "pipe", "pipe"] });
-    const abort = () => child.kill();
+    const abort = () => stopProcess(child);
     signal?.addEventListener("abort", abort, { once: true });
     // A question this small is answered in seconds. A minute and a half means something is stuck.
-    const timer = setTimeout(() => child.kill(), 90_000);
+    const timer = setTimeout(() => stopProcess(child), 90_000);
     let out = "";
     let err = "";
     child.stdout.on("data", (d) => (out += d));
