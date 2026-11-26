@@ -9,7 +9,11 @@ export type SceneComponents = Record<string, React.ComponentType | undefined>;
 const ease = Easing.bezier(0.16, 1, 0.3, 1);
 
 /** Applies the storyboard's entrance transition and camera move around a scene. */
-const SceneShell: React.FC<{ scene: SceneData; children: React.ReactNode }> = ({ scene, children }) => {
+export const SceneShell: React.FC<{ scene: SceneData; children: React.ReactNode; overlay?: React.ReactNode }> = ({
+  scene,
+  children,
+  overlay,
+}) => {
   const frame = useCurrentFrame();
   const { transitionFrames } = useVideoData();
   const t = useTheme();
@@ -50,12 +54,13 @@ const SceneShell: React.FC<{ scene: SceneData; children: React.ReactNode }> = ({
     <AbsoluteFill style={{ backgroundColor: t.palette.background, overflow: "hidden" }}>
       <AbsoluteFill style={entrance}>
         <AbsoluteFill style={camera}>{children}</AbsoluteFill>
+        {overlay}
       </AbsoluteFill>
     </AbsoluteFill>
   );
 };
 
-const MissingScene: React.FC<{ id: string }> = ({ id }) => {
+export const MissingScene: React.FC<{ id: string }> = ({ id }) => {
   const t = useTheme();
   return (
     <AbsoluteFill style={{ justifyContent: "center", alignItems: "center", backgroundColor: t.palette.surface }}>

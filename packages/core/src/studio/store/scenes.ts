@@ -75,6 +75,18 @@ export function sceneLabel(studio: Studio, scene: Pick<Scene, "chapterId" | "pos
   return `${getChapter(studio, scene.chapterId).position}.${scene.position}`;
 }
 
+/**
+ * Find a scene the way people name it: by its id, or by its label, such as "2.3" for the
+ * third scene of chapter two. A bare number means that scene of the first chapter.
+ */
+export function findScene(studio: Studio, projectId: string, ref: string): Scene {
+  const scenes = listScenes(studio, projectId);
+  const wanted = /^\d+$/.test(ref) ? `1.${ref}` : ref;
+  const found = scenes.find((s) => s.id === ref) ?? scenes.find((s) => sceneLabel(studio, s) === wanted);
+  if (!found) throw new Error(`There is no scene "${ref}" in this project. Use a label such as 1.2, or a scene id.`);
+  return found;
+}
+
 export function addScene(studio: Studio, chapterId: string, plan: ScenePlanInput, position?: number): Scene {
   const chapter = getChapter(studio, chapterId);
   const data = ScenePlanSchema.parse(plan);

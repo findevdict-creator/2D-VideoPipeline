@@ -4,7 +4,9 @@
  */
 const ALLOWED_IMPORTS = new Set(["@pipeline/lib", "remotion", "react"]);
 
-export function checkSceneSource(code: string): string[] {
+export function checkSceneSource(code: string, opts: { allowed?: string[]; allowedPrefixes?: string[] } = {}): string[] {
+  const allowed = opts.allowed ? new Set(opts.allowed) : ALLOWED_IMPORTS;
+  const prefixes = opts.allowedPrefixes ?? [];
   const problems: string[] = [];
   if (!/export\s+default\b/.test(code)) {
     problems.push("The file must default-export the scene component (export default function Scene() {...}).");
@@ -20,8 +22,10 @@ export function checkSceneSource(code: string): string[] {
   ];
   for (const m of imports) {
     const mod = m[1]!;
-    if (!ALLOWED_IMPORTS.has(mod)) {
-      problems.push(`Import from "${mod}" is not allowed. Use only "@pipeline/lib", "remotion" and "react".`);
+    if (!allowed.has(mod) && !prefixes.some((p) => mod.startsWith(p))) {
+      const names = [...allowed].map((m) => `"${m}"`);
+      const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names.join("");
+      problems.push(`Import from "${mod}" is not allowed. Use only ${list}.`);
     }
   }
   if (/\bMath\.random\s*\(/.test(code)) {

@@ -2,6 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { loadConfig, type PipelineConfig } from "../config.js";
 import { Db } from "./db/connection.js";
+import { FileServer } from "./media/fileServer.js";
 import { nowIso } from "./ids.js";
 
 export interface StudioEvent {
@@ -20,6 +21,7 @@ export interface StudioEvent {
 export class Studio {
   readonly db: Db;
   readonly workspaceDir: string;
+  private files?: Promise<FileServer>;
 
   constructor(
     readonly config: PipelineConfig,
@@ -64,7 +66,17 @@ export class Studio {
     return this.db.get<{ id: number | null }>("SELECT MAX(id) AS id FROM events")?.id ?? 0;
   }
 
+  /**
+   * The URL that a project's files are served from while this process renders.
+   * Asset paths in scene data are relative to it.
+   */
+  async assetBase(slug: string): Promise<string> {
+    this.files ??= FileServer.start(path.join(this.workspaceDir, "projects"));
+    return `${(await this.files).baseUrl}/${encodeURIComponent(slug)}`;
+  }
+
   close() {
+    void this.files?.then((f) => f.close());
     this.db.close();
   }
 }

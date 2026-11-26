@@ -24,3 +24,23 @@ export const SAMPLE_SPEC = {
     { id: "phone", phrase: "Your phone listens", action: "phone appears" },
   ],
 };
+
+/** A tiny scene whose picture depends on `label`, so changing the label changes the clip. */
+export const sceneCode = (label: string) => `import React from "react";
+import { Background, Title, useAppear, useCueAppear } from "@pipeline/lib";
+
+export default function Scene() {
+  const titleIn = useAppear(0, 0.4);
+  const cueIn = useCueAppear("sat", { durationSec: 0.3 });
+  return (
+    <>
+      <Background stars />
+      <Title progress={titleIn}>${label}</Title>
+      <div style={{ position: "absolute", left: 200, top: 400, width: 80, height: 80, background: "white", opacity: cueIn }} />
+    </>
+  );
+}
+`;
+
+export const BROWSER = process.env.REMOTION_BROWSER_EXECUTABLE;
+export const needsBrowser = { skip: !BROWSER && "set REMOTION_BROWSER_EXECUTABLE to run", timeout: 900_000 } as const;

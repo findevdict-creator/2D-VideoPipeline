@@ -10,3 +10,7 @@ export { Captions } from "./captions";
 export { ExplainerVideo, SingleScene } from "./Video";
 export { makeRoot } from "./Root";
 export type * from "./types";
+export { makeSceneRoot, SceneClip } from "./studio/SceneClip";
+export { Overlays } from "./studio/Overlays";
+export { IllustrationScene } from "./studio/IllustrationScene";
+export { FootageScene } from "./studio/FootageScene";

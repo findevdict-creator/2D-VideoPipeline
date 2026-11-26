@@ -59,6 +59,67 @@ export interface SceneData {
   audio: string | null;
   cues: CueTiming[];
   words: TimedWord[];
+  /** Studio scenes: "code" is a component an agent wrote; the others are drawn from data. */
+  kind?: "code" | "illustration" | "footage";
+  /** Labels, arrows, callouts and text cards drawn on top of the scene. */
+  overlays?: OverlayData[];
+  illustration?: IllustrationData;
+  footage?: FootageData;
+}
+
+interface OverlayTiming {
+  startFrame: number;
+  /** Null keeps it to the end of the scene. */
+  endFrame: number | null;
+  color?: string;
+}
+
+/** Positions are fractions of the frame: 0,0 is the top left corner. */
+export type OverlayData =
+  | (OverlayTiming & { kind: "label"; text: string; x: number; y: number; box: boolean; size?: number })
+  | (OverlayTiming & { kind: "arrow"; from: [number, number]; to: [number, number] })
+  | (OverlayTiming & { kind: "callout"; text: string; x: number; y: number; target: [number, number] })
+  | (OverlayTiming & { kind: "text-card"; title: string; body?: string });
+
+export interface FocusData {
+  /** The point of the image the camera centres on, as fractions of the image. */
+  x: number;
+  y: number;
+  /** 1 fills the frame; 2 shows half the image's width. */
+  zoom: number;
+}
+
+export interface ShotData {
+  /** Image URL, or a path relative to VideoData.assetBase. */
+  src: string;
+  /** The image's size in pixels. */
+  width: number;
+  height: number;
+  startFrame: number;
+  endFrame: number;
+  fit: "cover" | "contain";
+  from: FocusData;
+  to: FocusData | null;
+}
+
+export interface IllustrationData {
+  /** A palette key or CSS colour behind images that do not fill the frame. */
+  background: string;
+  shots: ShotData[];
+}
+
+export interface FootageData {
+  /** Video URL, or a path relative to VideoData.assetBase. */
+  src: string;
+  /** Where in the source the clip starts, in frames at the video's fps. */
+  trimBeforeFrames: number;
+  /** 1 is normal speed; below 1 is slow motion. */
+  playbackRate: number;
+  /** How many frames of the scene the source covers at that speed. */
+  coveredFrames: number;
+  /** What happens after the source runs out. */
+  after: "hold" | "loop";
+  objectFit: "cover" | "contain";
 }
 
 export interface CaptionToken {
@@ -93,4 +154,6 @@ export interface VideoData {
     pages: CaptionPage[];
   };
   music: { src: string | null; volume: number };
+  /** Studio renders: the URL that asset paths are relative to. */
+  assetBase?: string;
 }
