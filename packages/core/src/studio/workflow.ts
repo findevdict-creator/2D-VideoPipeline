@@ -9,7 +9,7 @@ import { agentFor, systemPrompt, taskPrompt } from "./runs/prompts.js";
 import { ClaudeCliStudioRunner, type StudioRunner } from "./runs/runner.js";
 import { renderSceneClip } from "./scenes/render.js";
 import type { Studio } from "./studio.js";
-import { getChapter, listChapters, updateChapter } from "./store/chapters.js";
+import { getChapter, listChapters, syncChapterStatus, updateChapter, type Chapter, type ChapterStatus } from "./store/chapters.js";
 import type { Clip, ClipQuality } from "./store/clips.js";
 import { approveDocument, latestDocument } from "./store/documents.js";
 import { getProject, projectPaths, updateProject, type Project } from "./store/projects.js";
@@ -55,6 +55,19 @@ export class Orchestrator {
     this.lanes = new Lanes(studio.config.studio.lanes);
     this.runner = runner ?? (studio.config.runner === "mock" ? new MockStudioRunner() : new ClaudeCliStudioRunner(studio.config.claudeBin));
     failInterruptedRuns(studio);
+    this.settleInterrupted();
+  }
+
+  /** After the studio was closed in the middle of work: nothing is left looking as if it were still being worked on. */
+  private settleInterrupted() {
+    const { studio } = this;
+    studio.db.run(
+      `UPDATE chapters SET status = CASE WHEN EXISTS (SELECT 1 FROM scenes WHERE scenes.chapter_id = chapters.id) THEN 'script_review' ELSE 'planned' END
+       WHERE status = 'scripting'`,
+    );
+    for (const { id } of studio.db.all<{ id: string }>("SELECT id FROM scenes WHERE status = 'in_production'")) {
+      setSceneStatus(studio, id, "failed", "The studio was closed while this scene was being built. Build it again.");
+    }
   }
 
   /** Resolves when everything started so far, and everything that work started in turn, has finished. */
@@ -204,6 +217,10 @@ export class Orchestrator {
         }
         break;
       case "scenes": {
+        for (const c of listChapters(studio, projectId)) {
+          if (c.status === "scripting") waitingOn.push(`The scene list of chapter ${c.position}, "${c.title}", is being rewritten.`);
+          if (c.status === "script_review") waitingOn.push(`The scene list of chapter ${c.position}, "${c.title}", is waiting for your approval.`);
+        }
         const open = scenes.filter((s) => s.status !== "approved");
         if (open.length) waitingOn.push(`${open.length} of ${scenes.length} scenes are not approved yet.`);
         break;
@@ -212,8 +229,12 @@ export class Orchestrator {
         if (!studio.db.get("SELECT 1 FROM renders WHERE project_id = ? AND kind = 'final' AND scope = 'project'", [projectId])) waitingOn.push("The final video has not been rendered yet.");
         break;
     }
-    if (active.length && project.stage !== "scenes") waitingOn.unshift(`${active.length} run(s) still working.`);
-    return { stage: project.stage, about: ABOUT[project.stage], running: active.length, waitingOn };
+    // Scenes of an approved chapter are built while later chapters are still being written, so scene runs never hold a stage back.
+    const planning = active.filter((r) => r.targetKind !== "scene");
+    if (planning.length && project.stage !== "scenes") waitingOn.unshift(`${planning.length} run(s) still working.`);
+    // While scene lists are being written, the scenes of chapters already approved are built alongside; those runs belong to the next stage.
+    const running = project.stage === "chapters" ? planning.length : active.length;
+    return { stage: project.stage, about: ABOUT[project.stage], running, waitingOn };
   }
 
   /** Start, or start again, the work of the project's current stage. `notes` asks for changes to what exists. */
@@ -234,10 +255,14 @@ export class Orchestrator {
       case "foundation":
         return listShared(studio, projectId).length ? [this.startRun({ projectId, kind: "foundation", notes })] : [];
       case "chapters": {
-        const scenes = listScenes(studio, projectId);
-        return listChapters(studio, projectId)
-          .filter((c) => notes || !scenes.some((s) => s.chapterId === c.id))
-          .map((c) => this.startRun({ projectId, kind: "chapter", targetId: c.id, notes }));
+        // With notes: every scene list not yet approved is written again. Without: carry on with the next unwritten chapter.
+        if (notes) {
+          return listChapters(studio, projectId)
+            .filter((c) => c.status === "planned" || c.status === "script_review")
+            .map((c) => this.scriptChapter(c.id, notes));
+        }
+        const run = this.scriptNextChapter(projectId);
+        return run ? [run] : [];
       }
       case "scenes":
         this.detach(projectId, this.produce(projectId));
@@ -247,10 +272,81 @@ export class Orchestrator {
     }
   }
 
-  /** Write one chapter's scene list again, with your notes. */
+  // ---------- Chapters ----------
+
+  /**
+   * Write the scene list of the first chapter that has none. Chapters are written one after
+   * another, so each can read what the ones before it said, and so the first is ready for
+   * review while the rest are still to come.
+   */
+  private scriptNextChapter(projectId: string): AgentRun | undefined {
+    const { studio } = this;
+    if (getProject(studio, projectId).stage !== "chapters") return undefined;
+    if (listRuns(studio, projectId, { active: true }).some((r) => r.targetKind === "chapter" && r.task === "build")) return undefined;
+    const scenes = listScenes(studio, projectId);
+    const next = listChapters(studio, projectId).find((c) => !scenes.some((s) => s.chapterId === c.id));
+    return next ? this.scriptChapter(next.id) : undefined;
+  }
+
+  private scriptChapter(chapterId: string, notes?: string): AgentRun {
+    const { studio } = this;
+    const chapter = getChapter(studio, chapterId);
+    const building = listRuns(studio, chapter.projectId, { active: true }).filter((r) => r.targetKind === "scene" && getScene(studio, r.targetId!).chapterId === chapterId);
+    if (building.length) throw new Error("Scenes of this chapter are being built right now. Wait for them to finish, or cancel them, before changing its scene list.");
+    const before = chapter.status;
+    const run = this.startRun({ projectId: chapter.projectId, kind: "chapter", targetId: chapterId, notes }, (finished) => this.afterChapterRun(finished, before));
+    updateChapter(studio, chapterId, { status: "scripting" });
+    return run;
+  }
+
+  private afterChapterRun(run: AgentRun, before: ChapterStatus) {
+    const { studio } = this;
+    const chapterId = run.targetId!;
+    const written = listScenes(studio, run.projectId, chapterId).length > 0;
+    const wasApproved = before === "in_production" || before === "done";
+    // A list that was written or changed is looked at again before anything is built from it. A run that failed leaves the chapter as it was.
+    const status: ChapterStatus = !written ? "planned" : run.status !== "done" && wasApproved ? before : "script_review";
+    updateChapter(studio, chapterId, { status });
+    syncChapterStatus(studio, chapterId);
+    if (run.status === "done" && written) this.scriptNextChapter(run.projectId);
+  }
+
+  /** Write one chapter's scene list again, with your notes. An approved list goes back up for your approval. */
   reviseChapter(chapterId: string, notes: string): AgentRun {
+    return this.scriptChapter(chapterId, notes);
+  }
+
+  /**
+   * Approve one chapter's scene list. Its narration is recorded and its scenes are built
+   * straight away, while later chapters are still being written.
+   */
+  approveChapter(chapterId: string): Chapter {
+    const { studio } = this;
+    const chapter = getChapter(studio, chapterId);
+    const project = getProject(studio, chapter.projectId);
+    if (project.stage !== "chapters" && project.stage !== "scenes") throw new Error("Scene lists are approved after the outline, the bible and the shared components.");
+    if (chapter.status === "in_production" || chapter.status === "done") throw new Error("This chapter's scene list is already approved.");
+    if (listRuns(studio, project.id, { active: true }).some((r) => r.targetKind === "chapter" && r.targetId === chapterId)) throw new Error("This chapter's scene list is still being written.");
+    if (!listScenes(studio, project.id, chapterId).length) throw new Error("This chapter has no scenes yet.");
+    updateChapter(studio, chapterId, { status: "in_production" });
+    // With the last scene list approved, planning is over.
+    if (project.stage === "chapters" && listChapters(studio, project.id).every((c) => c.status === "in_production" || c.status === "done")) {
+      updateProject(studio, project.id, { stage: "scenes" });
+    }
+    this.detach(project.id, this.produce(project.id, chapterId));
+    return syncChapterStatus(studio, chapterId);
+  }
+
+  /** Build the scenes of an approved chapter that are not built yet, or that failed. */
+  buildChapter(chapterId: string) {
     const chapter = getChapter(this.studio, chapterId);
-    return this.startRun({ projectId: chapter.projectId, kind: "chapter", targetId: chapterId, notes });
+    if (chapter.status !== "in_production" && chapter.status !== "done") throw new Error("Approve this chapter's scene list first.");
+    this.detach(chapter.projectId, this.produce(chapter.projectId, chapterId));
+  }
+
+  /** Join one chapter's scenes into a video to watch, using each scene as it stands now. */
+  previewChapter(chapterId: string): Promise<AssembleResult> {
+    return this.assemble(getChapter(this.studio, chapterId).projectId, { chapterId, quality: "preview" });
   }
 
   /** Approve the current stage and start the next one. Only people call this. */
@@ -274,7 +370,10 @@ export class Orchestrator {
         next("chapters");
         break;
       case "chapters":
-        for (const c of listChapters(studio, projectId)) updateChapter(studio, c.id, { status: "in_production" });
+        // Approves every scene list that has not been approved chapter by chapter.
+        for (const c of listChapters(studio, projectId)) {
+          if (c.status !== "in_production" && c.status !== "done") updateChapter(studio, c.id, { status: "in_production" });
+        }
         next("scenes");
         break;
       case "scenes":
@@ -293,13 +392,19 @@ export class Orchestrator {
 
   // ---------- Scenes ----------
 
-  /** Record narration for every scene in one pass, then build each scene that has not been built. */
-  async produce(projectId: string) {
+  /**
+   * Record narration in one pass, then build each scene that has not been built: for one
+   * chapter, or for every chapter whose scene list is approved.
+   */
+  async produce(projectId: string, chapterId?: string) {
     const { studio } = this;
-    const scenes = listScenes(studio, projectId);
-    await this.lanes.run("light", () => ensureVoice(studio, scenes.map((s) => s.id)));
+    const ready = () => {
+      const unapproved = new Set(listChapters(studio, projectId).filter((c) => c.status === "scripting" || c.status === "script_review").map((c) => c.id));
+      return listScenes(studio, projectId, chapterId).filter((s) => !unapproved.has(s.chapterId));
+    };
+    await this.lanes.run("light", () => ensureVoice(studio, ready().map((s) => s.id)));
     const active = new Set(listRuns(studio, projectId, { active: true }).map((r) => r.targetId));
-    for (const scene of listScenes(studio, projectId)) {
+    for (const scene of ready()) {
       if (active.has(scene.id)) continue;
       if (scene.status === "planned" || scene.status === "spec_ready" || scene.status === "failed") this.buildScene(scene.id);
     }

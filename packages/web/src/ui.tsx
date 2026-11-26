@@ -23,6 +23,14 @@ export const SCENE_STATUS: Record<string, { label: string; tone: string }> = {
   failed: { label: "Failed", tone: "bad" },
 };
 
+export const CHAPTER_STATUS: Record<string, { label: string; tone: string }> = {
+  planned: { label: "Not written yet", tone: "quiet" },
+  scripting: { label: "Being written", tone: "busy" },
+  script_review: { label: "Scene list needs your approval", tone: "warn" },
+  in_production: { label: "In production", tone: "busy" },
+  done: { label: "Done", tone: "good" },
+};
+
 export const RUN_STATUS: Record<string, { label: string; tone: string }> = {
   queued: { label: "Waiting", tone: "quiet" },
   running: { label: "Working", tone: "busy" },

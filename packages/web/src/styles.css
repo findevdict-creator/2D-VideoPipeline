@@ -165,6 +165,14 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 /* Scenes */
 .chapter { margin-bottom: 26px; }
 .chapter > .row { margin-bottom: 10px; flex-wrap: wrap; }
+.chapter { scroll-margin-top: 16px; }
+.chapter-actions:empty { display: none; }
+.chapter .player { max-width: 720px; margin-bottom: 12px; }
+.fold { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 2px 4px; }
+.board-tools { margin-bottom: 16px; }
+.chapter-strip { display: flex; flex-wrap: wrap; gap: 6px; }
+.chapter-strip a { text-decoration: none; }
+.chapter-strip a:hover { outline: 1px solid var(--accent); }
 .scene-card { text-align: left; font: inherit; color: inherit; cursor: pointer; display: flex; flex-direction: column; gap: 8px; padding: 10px; }
 .scene-card:hover, .scene-open { border-color: var(--accent); }
 .scene-card p { margin: 0; font-size: 13px; }

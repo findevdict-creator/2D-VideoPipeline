@@ -4,7 +4,7 @@ import path from "node:path";
 import { newId, nowIso } from "../ids.js";
 import { CODE_SCENE_TYPES, parseSpec, ScenePlanSchema, type ScenePlan, type ScenePlanInput, type SceneSpec, type SceneStatus, type SceneType } from "../model/scene.js";
 import type { Studio } from "../studio.js";
-import { getChapter } from "./chapters.js";
+import { getChapter, syncChapterStatus } from "./chapters.js";
 import { fromRow, fromRows } from "./mapping.js";
 import { getProject, projectPaths, type Project } from "./projects.js";
 
@@ -169,6 +169,7 @@ export function setSceneStatus(studio: Studio, sceneId: string, status: SceneSta
   const scene = getScene(studio, sceneId);
   studio.db.run("UPDATE scenes SET status = ?, stale_reason = ?, updated_at = ? WHERE id = ?", [status, status === "stale" || status === "failed" ? staleReason : null, nowIso(), sceneId]);
   studio.emit("scene.changed", { projectId: scene.projectId, targetId: sceneId, data: { status } });
+  syncChapterStatus(studio, scene.chapterId);
 }
 
 /** Change a planned scene's idea, narration or type before any work has gone into it. */
@@ -378,6 +379,7 @@ export function approveScene(studio: Studio, sceneId: string, notes = ""): Scene
   const source = versionPaths(studio, getProject(studio, scene.projectId), version).source;
   if (source && fs.existsSync(source)) fs.chmodSync(source, 0o444);
   studio.emit("scene.changed", { projectId: scene.projectId, targetId: sceneId, data: { status: "approved" } });
+  syncChapterStatus(studio, scene.chapterId);
   return getScene(studio, sceneId);
 }
 
@@ -411,5 +413,6 @@ export function rollbackScene(studio: Studio, sceneId: string, version: number):
     sceneId,
   ]);
   studio.emit("scene.changed", { projectId: scene.projectId, targetId: sceneId, data: { status } });
+  syncChapterStatus(studio, scene.chapterId);
   return getScene(studio, sceneId);
 }

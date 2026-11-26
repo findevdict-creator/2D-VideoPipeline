@@ -77,9 +77,11 @@ export async function assemble(studio: Studio, projectId: string, opts: Assemble
   const skip = (scene: Scene, reason: string) => skipped.push({ sceneId: scene.id, label: sceneLabel(studio, scene), title: scene.title, reason });
   const chosen: { scene: Scene; versionId: string }[] = [];
   for (const scene of scenes) {
-    const versionId = approvedOnly ? scene.approvedVersionId : scene.currentVersionId;
+    // A scene an agent is working on right now is half-written: show the version you last approved instead, if there is one.
+    const building = !approvedOnly && scene.status === "in_production";
+    const versionId = approvedOnly || building ? scene.approvedVersionId : scene.currentVersionId;
     if (versionId) chosen.push({ scene, versionId });
-    else skip(scene, approvedOnly ? "not approved yet" : "no spec yet");
+    else skip(scene, approvedOnly ? "not approved yet" : building ? "still being built" : "not built yet");
   }
   if (quality === "final" && skipped.length) {
     throw new Error(

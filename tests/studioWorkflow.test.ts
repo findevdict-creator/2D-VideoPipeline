@@ -141,7 +141,7 @@ test("scenes are built three at a time, each by its own run, without stepping on
   updateProject(studio, project.id, { stage: "chapters" });
   o.startStage(project.id);
   await o.idle();
-  assert.equal(o.lanes.peak.get("agents"), 3, "chapter runs also share the lane");
+  assert.equal(o.lanes.peak.get("agents"), 1, "scene lists are written one chapter after another");
   o.approveStage(project.id);
   await o.idle();
 

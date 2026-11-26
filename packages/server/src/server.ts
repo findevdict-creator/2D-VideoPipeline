@@ -97,6 +97,21 @@ export async function startServer(studio: Studio, opts: { port?: number; orchest
     getChapter(studio, params.chapter!);
     return { run: o.reviseChapter(params.chapter!, notes(body)).id };
   });
+  route("POST", "/api/chapters/:chapter/approve", ({ params }) => {
+    const chapter = o.approveChapter(params.chapter!);
+    return { status: chapter.status, stage: getProject(studio, chapter.projectId).stage };
+  });
+  route("POST", "/api/chapters/:chapter/build", ({ params }) => {
+    o.buildChapter(params.chapter!);
+    return { started: true };
+  });
+  route("POST", "/api/chapters/:chapter/preview", ({ params }) => {
+    const chapter = getChapter(studio, params.chapter!);
+    background(o.previewChapter(chapter.id).catch((err) => {
+      studio.emit("notice", { projectId: chapter.projectId, data: { level: "error", message: (err as Error).message } });
+    }));
+    return { started: true };
+  });
   route("GET", "/api/scenes/:scene", ({ params }) => sceneDetail(studio, params.scene!));
   route("PATCH", "/api/scenes/:scene/plan", ({ params, body }) => {
     const scene = getScene(studio, params.scene!);

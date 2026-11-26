@@ -106,6 +106,8 @@ export function projectSnapshot(studio: Studio, orchestrator: Orchestrator, idOr
     if (!doc) return null;
     return { id: doc.id, version: doc.version, status: doc.status, markdown: readDocument(studio, doc), notes: listReviews(studio, "document", doc.id).map((r) => r.notes).filter(Boolean) };
   };
+  const scenes = listScenes(studio, project.id);
+  const renders = listRenders(studio, project.id);
   return {
     project,
     stage: orchestrator.stageStatus(project.id),
@@ -113,8 +115,14 @@ export function projectSnapshot(studio: Studio, orchestrator: Orchestrator, idOr
     /** Scene types this machine cannot build until something is installed. */
     missingSceneTypes: unavailableSceneTypes(studio).map((t) => ({ ...t, about: SCENE_TYPE_GUIDE[t.type] })),
     documents: { outline: latest("outline"), bible: latest("bible") },
-    chapters: listChapters(studio, project.id),
-    scenes: listScenes(studio, project.id).map((s) => sceneCard(studio, project, s)),
+    chapters: listChapters(studio, project.id).map((c) => {
+      // The newest video made of this chapter alone, and whether its scenes have changed since.
+      const preview = renders.find((r) => r.scope === c.id);
+      const now = scenes.filter((s) => s.chapterId === c.id);
+      const current = preview !== undefined && preview.sceneVersions.length === now.filter((s) => s.currentVersionId).length && preview.sceneVersions.every((v) => now.some((s) => s.currentVersionId === v.versionId));
+      return { ...c, preview: preview ? { url: fileUrl(studio, project, preview.path), durationSec: preview.durationSec, createdAt: preview.createdAt, scenes: preview.sceneVersions.length, current } : null };
+    }),
+    scenes: scenes.map((s) => sceneCard(studio, project, s)),
     shared: listShared(studio, project.id).map((s) => ({
       ...s,
       code: readShared(studio, project.id, s.name) ?? null,
@@ -134,6 +142,6 @@ export function projectSnapshot(studio: Studio, orchestrator: Orchestrator, idOr
     }),
     runs: listRuns(studio, project.id, { limit: 60 }),
     jobs: studio.db.all("SELECT id, kind, target_id AS targetId, status, progress, error, queued_at AS queuedAt FROM jobs WHERE project_id = ? ORDER BY queued_at DESC, id DESC LIMIT 30", [project.id]),
-    renders: listRenders(studio, project.id).map((r) => ({ ...r, url: fileUrl(studio, project, r.path), srtUrl: fileUrl(studio, project, r.srtPath) })),
+    renders: renders.map((r) => ({ ...r, url: fileUrl(studio, project, r.path), srtUrl: fileUrl(studio, project, r.srtPath) })),
   };
 }

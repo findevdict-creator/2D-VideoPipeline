@@ -16,6 +16,8 @@ export class MockStudioRunner implements StudioRunner {
   stills?: boolean;
   /** Milliseconds each run takes, so tests can see runs overlap. */
   delayMs = 0;
+  /** Scenes written for each chapter. Raise it to try a long video. */
+  scenesPerChapter = 2;
 
   async run(studio: Studio, req: StudioRunRequest): Promise<StudioRunResult> {
     const ctx: ToolContext = { studio, projectId: req.run.projectId, run: req.run, log: (m) => req.onLog("info", m) };
@@ -41,12 +43,14 @@ export class MockStudioRunner implements StudioRunner {
 
     switch (req.run.targetKind) {
       case "outline": {
-        const count = project.targetDurationSec >= 90 ? 2 : 1;
+        // About two minutes a chapter once the video is long; one or two chapters for a short one.
+        const count = project.targetDurationSec >= 300 ? Math.min(12, Math.round(project.targetDurationSec / 120)) : project.targetDurationSec >= 90 ? 2 : 1;
         const each = Math.round(project.targetDurationSec / count);
-        const chapters = [
-          { title: "The question", goal: "The viewer knows what puzzle the video answers", targetDurationSec: each },
-          { title: "How it works", goal: "The viewer can explain the mechanism in a sentence", targetDurationSec: project.targetDurationSec - each },
-        ].slice(0, count);
+        const chapters = Array.from({ length: count }, (_, i) => ({
+          title: i === 0 ? "The question" : i === 1 ? "How it works" : `Going deeper, part ${i - 1}`,
+          goal: i === 0 ? "The viewer knows what puzzle the video answers" : i === 1 ? "The viewer can explain the mechanism in a sentence" : "The viewer sees one more consequence of the idea",
+          targetDurationSec: i === count - 1 ? project.targetDurationSec - each * (count - 1) : each,
+        }));
         await call("document_save", {
           kind: "outline",
           markdown: `# ${project.title}\n\n${project.description}\n\n${chapters.map((c) => `## ${c.title}\n\n${c.goal}.`).join("\n\n")}${notes ? `\n\n_Revised: ${notes}_` : ""}`,
@@ -85,9 +89,18 @@ export class MockStudioRunner implements StudioRunner {
       case "chapter": {
         const chapter = (info.chapters as { id: string; title: string; position: number }[]).find((c) => c.id === req.run.targetId)!;
         const image = (await call("asset_list", { kind: "image" })).assets[0] as { id: string } | undefined;
+        // A real run reads what the earlier chapters said before it writes; so does this one.
+        await call("scene_list");
         const scenes = [
           { title: `${chapter.title}: opening`, type: "remotion-2d", purpose: "Hook the viewer", narration: `Here is a question worth asking. ${sentence(project.description)}`, visualIdea: "The topic's name appears as a badge and rings pulse behind it" },
           { title: `${chapter.title}: the idea`, type: "remotion-2d", purpose: "State the idea", narration: "The answer is simpler than it looks. One signal leaves, one signal arrives, and the gap between them tells the story.", visualIdea: "Two dots, a line growing from one to the other" },
+          ...Array.from({ length: Math.max(0, this.scenesPerChapter - 2) }, (_, i) => ({
+            title: `${chapter.title}: step ${i + 1}`,
+            type: "remotion-2d",
+            purpose: "Take the idea one step further",
+            narration: `Step ${i + 1} follows from the last one. The same signal, seen from a slightly different side, explains a little more.`,
+            visualIdea: "The two dots again, with one more line between them",
+          })),
           ...(image && chapter.position === 1
             ? [{ title: `${chapter.title}: a closer look`, type: "illustration", purpose: "Show the real thing", narration: "Look closer at the picture. Every part of it has a job to do.", visualIdea: "The image, slowly zooming in" }]
             : []),
