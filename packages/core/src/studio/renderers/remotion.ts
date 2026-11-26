@@ -10,6 +10,7 @@ import type { VideoData } from "@pipeline/lib/types";
 import { projectPaths, type Project } from "../store/projects.js";
 import type { SceneType } from "../model/scene.js";
 import type { Studio } from "../studio.js";
+import { bitrateFor, encoderFor, forgetEncoder, guardBrokenPipe, isEncoderFailure, withEncoderQuality } from "./gpu.js";
 import { checkThreeSource } from "./threeCheck.js";
 import type { ClipResult, QualitySettings, RenderContext, Renderer } from "./types.js";
 
@@ -125,16 +126,59 @@ type ChromiumOptions = { gl?: Gl };
 
 /** The backend that last drew a 3D frame in this process, so the next render starts with it. */
 let glThatWorks: Gl | undefined;
+/** Whether Chrome has drawn a 2D scene with the graphics card in this process: yes, no, or not tried yet. */
+let gpu2d: boolean | undefined;
+let saidDrawing = false;
+
+/** Forget what worked on this machine. For tests. */
+export function forgetGl(): void {
+  glThatWorks = undefined;
+  gpu2d = undefined;
+  saidDrawing = false;
+}
 
 /**
- * Run a render with a way of drawing 3D that works on this machine. 2D scenes need
- * nothing special. For 3D, the setting wins; without one, try the graphics card first
- * and software drawing second, and remember which one worked.
+ * Whether 2D scenes are drawn with the graphics card. They draw correctly either way, so
+ * this is only about speed: on by default where a desktop has a card (Windows and macOS),
+ * and anywhere when render.gpu is "on" or render.gl names a backend.
+ */
+export function gpuFor2d(render: Studio["config"]["render"], platform: NodeJS.Platform = process.platform): Gl | undefined {
+  if (render.gpu === "off") return undefined;
+  if (render.gl) return render.gl;
+  if (render.gpu === "on") return "angle";
+  return platform === "win32" || platform === "darwin" ? "angle" : undefined;
+}
+
+const firstLine = (err: unknown) => (err instanceof Error ? err.message : String(err)).split("\n")[0]!;
+
+/**
+ * Run a render with a way of drawing that works on this machine. For 3D, the setting wins;
+ * without one, try the graphics card first and software drawing second, and remember which
+ * one worked. 2D scenes need no graphics card, so there it is used when it works and
+ * dropped when it does not.
  */
 export async function withGl<T>(studio: Studio, three: boolean, log: (m: string) => void, job: (chromiumOptions: ChromiumOptions) => Promise<T>): Promise<T> {
-  if (!three) return job({});
-  const set = studio.config.render.gl;
-  const choices: Gl[] = set ? [set] : glThatWorks ? [glThatWorks] : ["angle", "swangle"];
+  const render = studio.config.render;
+  if (!three) {
+    const gl = gpu2d === false ? undefined : gpuFor2d(render);
+    if (!gl) return job({});
+    try {
+      const result = await job({ gl });
+      gpu2d = true;
+      if (!saidDrawing) log(`Drawing frames with the graphics card ("${gl}").`);
+      saidDrawing = true;
+      return result;
+    } catch (err) {
+      // Once the card has drawn a scene, a failure is the scene's own. "on" never falls back.
+      if (gpu2d || render.gpu === "on") throw err;
+      const result = await job({});
+      gpu2d = false;
+      log(`Drawing with the graphics card ("${gl}") did not work on this machine, so frames are drawn without it. (${firstLine(err)})`);
+      return result;
+    }
+  }
+  const set = render.gl;
+  const choices: Gl[] = set ? [set] : glThatWorks ? [glThatWorks] : render.gpu === "off" ? ["swangle"] : render.gpu === "on" ? ["angle"] : ["angle", "swangle"];
   let lastError: unknown;
   for (const gl of choices) {
     try {
@@ -180,30 +224,51 @@ async function renderClipWith(ctx: RenderContext, serveUrl: string, q: QualitySe
   const composition = await selectComposition({ serveUrl, id: "Scene", inputProps, browserExecutable: browser(ctx.studio), chromiumOptions, logLevel: "error" });
   fs.mkdirSync(path.dirname(output), { recursive: true });
   const partial = `${output}.part.mp4`;
-  await renderMedia({
-    composition,
-    serveUrl,
-    inputProps,
-    // Every clip uses the same codec and pixel format, so the assembler can join them without re-encoding.
-    codec: "h264",
-    crf: q.crf,
-    pixelFormat: "yuv420p",
-    muted: true,
-    outputLocation: partial,
-    scale: q.scale,
-    concurrency: ctx.studio.config.render.concurrency,
-    browserExecutable: browser(ctx.studio),
-    chromiumOptions,
-    logLevel: "error",
-    onProgress: ({ progress }) => onProgress(progress),
-  });
+  const width = Math.round(composition.width * q.scale);
+  const height = Math.round(composition.height * q.scale);
+  const render = (encoder: string | undefined) =>
+    renderMedia({
+      composition,
+      serveUrl,
+      inputProps,
+      // Every clip is H.264 in the same pixel format, so the assembler can join them without re-encoding.
+      codec: "h264",
+      pixelFormat: "yuv420p",
+      // A hardware encoder takes no CRF: NVIDIA's gets its quality from ffmpegOverride, Apple's from a bitrate.
+      ...(encoder
+        ? {
+            hardwareAcceleration: "if-possible" as const,
+            ffmpegOverride: ({ args }: { args: string[] }) => withEncoderQuality(args, q.crf),
+            ...(encoder === "h264_nvenc" ? {} : { videoBitrate: bitrateFor(width, height, composition.fps, q.crf) }),
+          }
+        : { crf: q.crf, hardwareAcceleration: "disable" as const }),
+      muted: true,
+      outputLocation: partial,
+      scale: q.scale,
+      concurrency: ctx.studio.config.render.concurrency,
+      browserExecutable: browser(ctx.studio),
+      chromiumOptions,
+      logLevel: "error",
+      onProgress: ({ progress }) => onProgress(progress),
+    });
+  const encoder = await encoderFor(ctx.studio, ctx.log);
+  try {
+    await (encoder ? guardBrokenPipe(() => render(encoder)) : render(undefined));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!encoder || !isEncoderFailure(message)) throw err;
+    // The card encoded the test frames but not this clip (a driver limit on size or on clips at once, say).
+    const why = /EPIPE/.test(message) ? "the encoder stopped" : message.split("\n")[0];
+    if (ctx.studio.config.render.gpu === "on") {
+      throw new Error(`Encoding on the graphics card (${encoder}) failed: ${why}. render.gpu is "on", so the processor was not tried. Set it to "auto" in pipeline.config.json to fall back.`);
+    }
+    forgetEncoder({ reason: `${encoder} stopped working: ${why}` });
+    ctx.log(`Encoding on the graphics card failed, so this and later clips are encoded on the processor. (${why})`);
+    onProgress(0);
+    await render(undefined);
+  }
   fs.renameSync(partial, output);
-  return {
-    file: output,
-    durationFrames: composition.durationInFrames,
-    width: Math.round(composition.width * q.scale),
-    height: Math.round(composition.height * q.scale),
-  };
+  return { file: output, durationFrames: composition.durationInFrames, width, height };
 }
 
 /**

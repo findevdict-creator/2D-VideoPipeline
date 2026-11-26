@@ -177,6 +177,29 @@ A scene run saves its plan, writes the scene file (`scene.tsx`, or `scene.py` fo
 - **Disk use stays flat as a video grows.** Each scene keeps its clip and one small bundle; the build tool's own cache, which grew by about 250 MB per scene and was never reused, is switched off.
 - **The final video renders its missing clips a few at a time** and reuses every clip that is still current, so changing three scenes of a 20-minute video renders three clips.
 
+### Using your graphics card
+
+Rendering has two halves, and the graphics card can help with both. The `render.gpu` setting covers them, and its default, `auto`, uses the card where it works and the processor where it does not.
+
+- **Drawing frames.** Chrome draws every frame. On Windows and macOS it is started with its graphics-card backend (`angle`), which speeds up scenes with 3D, blur, shadows, gradients and large images. Plain text and shapes gain little, because for those most of the time goes to taking each frame out of Chrome.
+- **Encoding video.** Each clip is encoded with NVIDIA's encoder (`h264_nvenc`) on Windows and Linux, or Apple's (`h264_videotoolbox`) on a Mac. The studio encodes a few test frames first, so a machine without a suitable card or driver stays on the processor. Intel and AMD cards draw frames, but their encoders are not in the ffmpeg that ships with Remotion, so with those the video is encoded on the processor.
+
+Check what your machine will do:
+
+```bash
+npm run studio -- gpu
+```
+
+It names the device Chrome draws with (your card, or a software renderer such as SwiftShader) and says whether the hardware encoder works. During a render, the job log says "Drawing frames with the graphics card" and "Encoding video on the graphics card" the first time each happens. On Windows you can also watch Task Manager, Performance, GPU while a final render runs: the "3D" graph is Chrome drawing and "Video Encode" is the encoder.
+
+```json
+{ "render": { "gpu": "on" } }
+```
+
+`"on"` stops a render with an error when the card cannot be used, which is the quickest way to find out why. `"off"` keeps everything on the processor. Clips rendered before you change the setting are kept: they join with the new ones.
+
+If renders are still slow with the card in use, the processor is the limit. `render.concurrency` (frames drawn at once in one render) and `studio.lanes.renders` (scenes rendered at once) are the two settings to raise, as far as memory allows. Manim scenes are always drawn on the processor.
+
 ### When Claude's usage limit is reached
 
 A long video can use more of your Claude plan than one limit window allows. When Claude Code reports that the limit was reached, nothing fails:
@@ -204,6 +227,7 @@ Everything the GUI does is also a command, which is useful for scripts.
 npm run studio -- new "How noise-cancelling headphones work" --minutes 3
 npm run studio -- new "How GPS finds where you are" --minutes 7 --seconds 30   # any length from 10 seconds to 60 minutes
 npm run studio -- length "How GPS finds where you are"   # ask Claude how long it should be, before you start
+npm run studio -- gpu                       # what the graphics card is used for on this machine
 npm run studio -- status <project>          # where it stands and what it waits on
 npm run studio -- approve <project>         # approve the current stage and start the next
 npm run studio -- start <project> --notes "Open with the hum on a plane"   # ask for changes to the current stage
@@ -269,7 +293,9 @@ In [`pipeline.config.json`](pipeline.config.json), under `studio`. The voice and
 | `studio.usageLimit.retryMinutes` | `15` | How long to wait before trying again when Claude's usage limit is reached and Claude does not say when it lifts. Doubles after each try that fails, up to an hour |
 | `studio.usageLimit.maxTries` | `8` | Tries one run gets at a usage limit before it is marked failed |
 | `studio.modelTriangleBudget` | `300000` | A 3D model with more triangles than this gets a warning when added: it renders, but slowly |
-| `render.gl` | empty | How Chrome draws 3D scenes. Empty tries the graphics card (`angle`) and falls back to software (`swangle`), which is slower but works anywhere. Also `REMOTION_GL` |
+| `render.gpu` | `auto` | The graphics card. `auto` draws frames and encodes video on it where that works and falls back to the processor. `on` stops with an error instead of falling back. `off` never uses it. Also `STUDIO_GPU` |
+| `render.gl` | empty | Pins how Chrome draws. Empty follows `render.gpu`: the graphics card (`angle`), with software (`swangle`) as the fallback for 3D scenes. Also `REMOTION_GL` |
+| `render.concurrency` | empty | Frames drawn at once inside one render. Empty is half your processor threads, up to 8 |
 | `render.manim.python` | empty | Python to run Manim with. Empty means the one `setup:manim` installed. Also `MANIM_PYTHON` |
 | `render.manim.timeoutSec` | `600` | How long Manim may take to draw one scene before it is stopped |
 | `render.manim.latex` | `auto` | `off` shows equations as plain text even when LaTeX is installed |

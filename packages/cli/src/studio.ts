@@ -18,6 +18,7 @@ import { clock, referenceKeyframes } from "@studio/core/studio/assets/keyframes"
 import { LOOKS, MAX_DURATION_SEC, MIN_DURATION_SEC } from "@studio/core/studio/model/project";
 import { assemble } from "@studio/core/studio/assemble";
 import { recommendLength } from "@studio/core/studio/length";
+import { gpuReport } from "@studio/core/studio/renderers/gpu";
 import { checkScene, renderSceneClip, renderSceneStills } from "@studio/core/studio/scenes/render";
 
 const HELP = `Scene studio
@@ -26,6 +27,7 @@ Usage:
   npm run studio                                     open the studio in your browser (--port, --no-open)
   npm run studio -- new "<description>"              start a project (--minutes or --seconds for any length from 10 seconds to 60 minutes, --title)
   npm run studio -- length "<description>"           ask Claude how long a video with this description should be
+  npm run studio -- gpu                              check what the graphics card is used for on this machine
   npm run studio -- status <project>                 where the project stands and what it is waiting on
   npm run studio -- start <project>                  run the current stage's work (--notes to ask for changes)
   npm run studio -- approve <project>                approve the current stage and start the next one
@@ -133,6 +135,27 @@ async function run(
     const advice = await recommendLength(studio, description);
     console.log(`Claude recommends ${readable(advice.seconds)}. ${advice.reason}`);
     console.log(`To start with it: npm run studio -- new ${JSON.stringify(description)} --seconds ${advice.seconds}`);
+    return;
+  }
+  if (command === "gpu") {
+    console.log("Checking the graphics card. This starts Chrome and encodes a few test frames...");
+    const report = await gpuReport(studio);
+    console.log(`\nSetting: render.gpu is "${report.mode}".`);
+    console.log("\nDrawing frames (Chrome):");
+    for (const d of report.drawing) {
+      const what = d.problem ? `did not start: ${d.problem}` : `${d.device}${d.software ? "  <- software, not a graphics card" : ""}`;
+      console.log(`  ${d.gl.padEnd(8)} ${what}`);
+    }
+    const card = report.drawing[0]!;
+    const drawsOnCard = !card.problem && !card.software;
+    console.log(`\nEncoding video: ${report.encoding.encoder ? `${report.encoding.encoder} works.` : report.encoding.reason}`);
+    console.log("\nWhat a render will do:");
+    if (report.mode === "off") console.log("  Nothing runs on the graphics card, because render.gpu is \"off\".");
+    else {
+      console.log(`  Frames are drawn ${drawsOnCard ? "with the graphics card" : "in software"}.`);
+      console.log(`  Video is encoded ${report.encoding.encoder ? "on the graphics card" : "on the processor"}.`);
+      if (report.mode === "on" && !report.encoding.encoder) console.log("  render.gpu is \"on\", so renders will stop with an error until encoding works or the setting is \"auto\".");
+    }
     return;
   }
   if (command === "new") {

@@ -63,8 +63,14 @@ export const RenderConfigSchema = z.object({
   /** Path to a Chrome or Chrome Headless Shell. Empty means Remotion downloads its own. */
   browserExecutable: z.string().default(""),
   /**
-   * How Chrome draws 3D scenes. Empty tries your graphics card ("angle") and falls back to
-   * software drawing ("swangle"), which is slower but works on any machine.
+   * The graphics card. "auto" draws frames and encodes video on it where that works and
+   * falls back to the processor where it does not. "on" stops with an error instead of
+   * falling back. "off" never uses it.
+   */
+  gpu: z.enum(["auto", "on", "off"]).default("auto"),
+  /**
+   * How Chrome draws. Empty follows `gpu`: your graphics card ("angle"), with software
+   * drawing ("swangle") as the fallback for 3D scenes. Set it to pin one backend.
    */
   gl: z.enum(["angle", "swangle", "egl", "vulkan", "angle-egl"]).nullable().default(null),
   /** Manim scenes. */
@@ -216,6 +222,7 @@ export function loadConfig(overrides: ConfigOverrides = {}): PipelineConfig {
     ...file.render,
     ...(process.env.REMOTION_BROWSER_EXECUTABLE ? { browserExecutable: process.env.REMOTION_BROWSER_EXECUTABLE } : {}),
     ...(process.env.REMOTION_GL ? { gl: process.env.REMOTION_GL } : {}),
+    ...(process.env.STUDIO_GPU ? { gpu: process.env.STUDIO_GPU } : {}),
     ...(process.env.MANIM_PYTHON ? { manim: { ...((file.render?.manim as object | undefined) ?? {}), python: process.env.MANIM_PYTHON } } : {}),
     ...overrides.render,
   });
