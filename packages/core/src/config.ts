@@ -67,6 +67,17 @@ export const RenderConfigSchema = z.object({
    * software drawing ("swangle"), which is slower but works on any machine.
    */
   gl: z.enum(["angle", "swangle", "egl", "vulkan", "angle-egl"]).nullable().default(null),
+  /** Manim scenes. */
+  manim: z
+    .object({
+      /** Python to run Manim with. Empty means: the one setup:manim installed, else python3 / python. */
+      python: z.string().default(""),
+      /** How long Manim may take to draw one scene, in seconds, before it is stopped. */
+      timeoutSec: z.number().int().min(10).max(3600).default(600),
+      /** "auto" typesets equations with LaTeX when it is installed. "off" always shows them as plain text. */
+      latex: z.enum(["auto", "off"]).default("auto"),
+    })
+    .prefault({}),
   /** Length of each scene's entrance transition, in seconds. */
   transitionSec: z.number().min(0).max(2).default(0.4),
   /** Where final videos go, relative to the production folder. */
@@ -196,6 +207,7 @@ export function loadConfig(overrides: ConfigOverrides = {}): PipelineConfig {
     ...file.render,
     ...(process.env.REMOTION_BROWSER_EXECUTABLE ? { browserExecutable: process.env.REMOTION_BROWSER_EXECUTABLE } : {}),
     ...(process.env.REMOTION_GL ? { gl: process.env.REMOTION_GL } : {}),
+    ...(process.env.MANIM_PYTHON ? { manim: { ...((file.render?.manim as object | undefined) ?? {}), python: process.env.MANIM_PYTHON } } : {}),
     ...overrides.render,
   });
   const animator = AnimatorConfigSchema.parse({ ...file.animator, ...overrides.animator });

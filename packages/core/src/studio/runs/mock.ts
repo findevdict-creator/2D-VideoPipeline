@@ -127,8 +127,11 @@ export class MockStudioRunner implements StudioRunner {
           });
         } else {
           const saved = await call("scene_save_spec", { spec: { ...base, uses: shared ? [{ name: shared.name, version: shared.version }] : [] } });
-          fs.writeFileSync(saved.codeFile, scene.type === "r3f" ? sceneCode3d(base.title, notes, cues.length > 1) : sceneCode(base.title, notes, cues.length > 1, Boolean(shared)));
-          req.onLog("tool", "Write scene.tsx");
+          const second = cues.length > 1;
+          const code =
+            scene.type === "r3f" ? sceneCode3d(base.title, notes, second) : scene.type === "manim" ? sceneCodeManim(base.title, notes, second) : sceneCode(base.title, notes, second, Boolean(shared));
+          fs.writeFileSync(saved.codeFile, code);
+          req.onLog("tool", `Write ${scene.type === "manim" ? "scene.py" : "scene.tsx"}`);
         }
         await call("scene_check");
         if (this.stills ?? Boolean(studio.config.render.browserExecutable)) await call("scene_stills");
@@ -216,6 +219,24 @@ export default function Scene() {
     </>
   );
 }
+`;
+
+const sceneCodeManim = (title: string, notes: string | undefined, second: boolean) => `from manim import *
+from pipeline_manim import StudioScene, safe, theme
+
+
+class Main(StudioScene):
+    def build(self):
+        title = Text(${JSON.stringify((notes ?? title).slice(0, 36))}, font_size=44).move_to(safe.point(0.5, 0.12))
+        axes = Axes(x_range=[0, 4, 1], y_range=[0, 4, 1], x_length=6, y_length=3.4, axis_config={"color": theme.text})
+        axes.move_to(safe.point(0.5, 0.6))
+        curve = axes.plot(lambda x: x * x / 4, x_range=[0, 4], color=theme.accent, stroke_width=6)
+        dot = Dot(axes.c2p(2, 1), color=theme.primary, radius=0.12)
+
+        self.wait_until("first")
+        self.play(FadeIn(title, shift=DOWN * 0.3), Create(axes), run_time=0.8)
+        ${second ? 'self.wait_until("second")' : "self.wait(0.2)"}
+        self.play(Create(curve), FadeIn(dot, scale=0.5), run_time=min(1.0, max(0.3, self.remaining() - 0.1)))
 `;
 
 const sceneCode3d = (title: string, notes: string | undefined, second: boolean) => `import React from "react";

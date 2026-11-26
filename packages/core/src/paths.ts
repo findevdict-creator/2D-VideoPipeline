@@ -15,5 +15,8 @@ export const LIB_EXAMPLE_3D = path.join(LIB_DIR, "examples", "ExampleScene3D.tsx
 export const LIB_EXAMPLE = path.join(LIB_DIR, "examples", "ExampleScene.tsx");
 export const LIB_TSCONFIG = path.join(LIB_DIR, "tsconfig.json");
 
-/** Python helpers: Kokoro text-to-speech, and later the Manim helper. */
+/** Python helpers: Kokoro text-to-speech, and what Manim scenes build on. */
 export const PYTHON_DIR = path.join(REPO_ROOT, "python");
+export const MANIM_DIR = path.join(PYTHON_DIR, "manim");
+export const MANIM_README = path.join(MANIM_DIR, "README.md");
+export const MANIM_EXAMPLE = path.join(MANIM_DIR, "example_scene.py");

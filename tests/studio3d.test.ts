@@ -55,8 +55,8 @@ export default function Scene() {
 `;
 
 test("3D scenes are a scene type, checked like any other code scene", async () => {
-  assert.ok(availableSceneTypes().includes("r3f"));
   const studio = await tempStudio();
+  assert.ok(availableSceneTypes(studio).includes("r3f"));
   const { scene, file } = scene3d(studio, EXAMPLE_3D);
   assert.deepEqual(await checkScene(studio, scene.id), [], "the library's own example passes, types included");
 

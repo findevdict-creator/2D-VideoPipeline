@@ -41,6 +41,8 @@ export interface SceneVersion {
   durationFrames: number | null;
   stills: Still[];
   checkProblems: string[];
+  /** What the check found that does not stop a render but the person should know. */
+  checkNotes: string[];
   summary: string | null;
   createdBy: string;
   createdAt: string;
@@ -306,13 +308,13 @@ export function saveSpec(studio: Studio, sceneId: string, raw: unknown, createdB
 export function updateVersion(
   studio: Studio,
   versionId: string,
-  patch: Partial<Pick<SceneVersion, "sourceHash" | "voiceTrackId" | "durationFrames" | "stills" | "checkProblems" | "summary">>,
+  patch: Partial<Pick<SceneVersion, "sourceHash" | "voiceTrackId" | "durationFrames" | "stills" | "checkProblems" | "checkNotes" | "summary">>,
 ): SceneVersion {
   const v = getVersion(studio, versionId);
   const next = { ...v, ...patch };
   studio.db.run(
     `UPDATE scene_versions SET source_hash = :sourceHash, voice_track_id = :voice, duration_frames = :frames,
-       stills_json = :stills, check_problems_json = :problems, summary = :summary, updated_at = :stamp WHERE id = :id`,
+       stills_json = :stills, check_problems_json = :problems, check_notes_json = :notes, summary = :summary, updated_at = :stamp WHERE id = :id`,
     {
       id: versionId,
       sourceHash: next.sourceHash,
@@ -320,6 +322,7 @@ export function updateVersion(
       frames: next.durationFrames,
       stills: JSON.stringify(next.stills),
       problems: JSON.stringify(next.checkProblems),
+      notes: JSON.stringify(next.checkNotes),
       summary: next.summary,
       stamp: nowIso(),
     },

@@ -242,8 +242,50 @@ function PlanTab({ snap }: { snap: Snapshot }) {
             {theme.fontFamily} · {theme.visualStyle}
           </p>
         </section>
+        <SceneTypes snap={snap} />
       </div>
     </div>
+  );
+}
+
+/** Which kinds of scene Claude may choose when it plans a chapter. A scene's own kind can always be changed by hand. */
+function SceneTypes({ snap }: { snap: Snapshot }) {
+  const [busy, act] = useAction();
+  const allowed = snap.project.settings.sceneTypes;
+  const toggle = (type: string) => {
+    const next = allowed.includes(type) ? allowed.filter((t) => t !== type) : [...allowed, type];
+    if (!next.some((t) => snap.sceneTypes.some((s) => s.type === t))) return;
+    void act(() => api.updateSettings(snap.project.slug, { sceneTypes: next }));
+  };
+  return (
+    <section className="card">
+      <h3>Kinds of scene</h3>
+      <p className="muted small">Claude picks one of these for each scene when it plans a chapter. You can change a scene's kind before it is built.</p>
+      <ul className="types">
+        {snap.sceneTypes.map((t) => (
+          <li key={t.type}>
+            <label className="check">
+              <input type="checkbox" checked={allowed.includes(t.type)} disabled={busy} onChange={() => toggle(t.type)} />
+              <span>
+                <strong>{TYPE_NAME[t.type] ?? t.type}</strong>
+                <span className="muted small"> · {t.about}</span>
+              </span>
+            </label>
+          </li>
+        ))}
+        {snap.missingSceneTypes.map((t) => (
+          <li key={t.type}>
+            <label className="check">
+              <input type="checkbox" checked={false} disabled readOnly />
+              <span>
+                <strong>{TYPE_NAME[t.type] ?? t.type}</strong>
+                <span className="muted small"> · Not set up on this computer. {t.why}</span>
+              </span>
+            </label>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

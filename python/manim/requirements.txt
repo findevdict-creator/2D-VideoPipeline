@@ -1,0 +1,2 @@
+# Manim Community, for scenes of type "manim". Installed by: npm run setup:manim
+manim>=0.22,<0.23

@@ -5,3 +5,5 @@ productions/
 .venv-voice/
 voice-auditions/
 __pycache__/
+
+.venv-manim/

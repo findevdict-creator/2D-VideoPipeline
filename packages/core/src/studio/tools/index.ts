@@ -41,7 +41,7 @@ export { ToolRefusal, type ToolContext, type ToolDef, type ToolOutput } from "./
 export const SCENE_TYPE_GUIDE: Record<SceneType, string> = {
   "remotion-2d": "Animated 2D diagram written as code: shapes, icons, labels, charts and motion timed to the narration. The default choice.",
   r3f: "3D scene written as code with react-three-fiber. For depth, rotation and real objects seen from a moving camera.",
-  manim: "Mathematical animation written with Manim: equations, graphs and geometry that transform step by step.",
+  manim: "Mathematical animation written in Python with Manim: equations, graphs, number lines and geometry that are drawn and transform step by step. For maths; anything else is easier as remotion-2d.",
   illustration: "One or more of the project's images with a slow camera move, labels and arrows on top. Needs an image asset.",
   footage: "A video clip from the project's assets, fitted to the narration, with labels on top. Needs a video asset.",
 };
@@ -91,7 +91,7 @@ const tools: ToolDef<any>[] = [
       const { studio } = ctx;
       const project = getProject(studio, ctx.projectId);
       const assets = new Map(listAssets(studio, project.id).map((a) => [a.id, a]));
-      const types = availableSceneTypes().filter((t) => project.settings.sceneTypes.includes(t));
+      const types = availableSceneTypes(studio).filter((t) => project.settings.sceneTypes.includes(t));
       return {
         title: project.title,
         description: project.description,
@@ -372,7 +372,7 @@ const tools: ToolDef<any>[] = [
       const { studio } = ctx;
       const project = getProject(studio, ctx.projectId);
       const chapter = getChapter(studio, run.targetId!);
-      const allowed = availableSceneTypes().filter((t) => project.settings.sceneTypes.includes(t));
+      const allowed = availableSceneTypes(studio).filter((t) => project.settings.sceneTypes.includes(t));
       const problems: string[] = [];
       scenes.forEach((s, i) => {
         if (!allowed.includes(s.type)) problems.push(`scenes.${i}: type "${s.type}" is not available in this project. Choose from: ${allowed.join(", ")}.`);
@@ -437,7 +437,8 @@ const tools: ToolDef<any>[] = [
   }),
   defineTool({
     name: "scene_check",
-    description: "Check your scene: its code is type-checked and scanned for things that break renders. Returns the problems, or none.",
+    description:
+      "Check your scene: its code is scanned for things that break renders and checked for errors (a Manim scene is run once without drawing, which also finds animations that miss their cue). Returns the problems, or none, and sometimes notes that do not need fixing.",
     writers: ["scene"],
     input: z.object({}),
     handler: async (ctx) => {
@@ -445,7 +446,8 @@ const tools: ToolDef<any>[] = [
       const scene = sceneOf(ctx, undefined, true);
       if (!scene.currentVersionId) throw new ToolRefusal("Save a spec with scene_save_spec first.");
       const problems = await checkScene(ctx.studio, scene.id, ctx.log);
-      return problems.length ? { ok: false, problems } : { ok: true };
+      const notes = currentVersion(ctx.studio, getScene(ctx.studio, scene.id))?.checkNotes ?? [];
+      return { ok: problems.length === 0, ...(problems.length ? { problems } : {}), ...(notes.length ? { notes } : {}) };
     },
   }),
   defineTool({

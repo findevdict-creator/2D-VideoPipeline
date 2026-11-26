@@ -11,7 +11,7 @@ import { listShared, listSharedRequests, readShared, sharedVersions } from "@stu
 import { getVoiceTrack } from "@studio/core/studio/voice";
 import type { ModelInfo } from "@studio/core/studio/assets/gltf";
 import { modelThumbnail } from "@studio/core/studio/renderers/modelPreview";
-import { availableSceneTypes } from "@studio/core/studio/renderers/registry";
+import { availableSceneTypes, unavailableSceneTypes } from "@studio/core/studio/renderers/registry";
 import { SCENE_TYPE_GUIDE } from "@studio/core/studio/tools/index";
 import type { Orchestrator } from "@studio/core/studio/workflow";
 
@@ -35,6 +35,7 @@ function versionView(studio: Studio, project: Project, v: SceneVersion) {
     createdAt: v.createdAt,
     summary: v.summary,
     checkProblems: v.checkProblems,
+    checkNotes: v.checkNotes,
     durationSec: track?.durationSec ?? null,
     stills: v.stills.map((s) => ({ frame: s.frame, url: fileUrl(studio, project, s.file) })).filter((s) => s.url),
     reviewUrl: fileUrl(studio, project, p.rel(paths.review("preview"))),
@@ -108,7 +109,9 @@ export function projectSnapshot(studio: Studio, orchestrator: Orchestrator, idOr
   return {
     project,
     stage: orchestrator.stageStatus(project.id),
-    sceneTypes: availableSceneTypes().map((t) => ({ type: t, about: SCENE_TYPE_GUIDE[t] })),
+    sceneTypes: availableSceneTypes(studio).map((t) => ({ type: t, about: SCENE_TYPE_GUIDE[t] })),
+    /** Scene types this machine cannot build until something is installed. */
+    missingSceneTypes: unavailableSceneTypes(studio).map((t) => ({ ...t, about: SCENE_TYPE_GUIDE[t.type] })),
     documents: { outline: latest("outline"), bible: latest("bible") },
     chapters: listChapters(studio, project.id),
     scenes: listScenes(studio, project.id).map((s) => sceneCard(studio, project, s)),

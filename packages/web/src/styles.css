@@ -229,3 +229,8 @@ summary { cursor: pointer; font-weight: 600; color: var(--muted); }
 .toast-bad { background: var(--bad); color: #fff; }
 .toast-good { background: var(--good); color: #fff; }
 @media (prefers-color-scheme: dark) { .toast-bad { background: #b53340; } .toast-good { background: #1f7a57; } }
+.notes { color: var(--muted); padding-left: 18px; margin: 4px 0; }
+.types { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 8px; }
+label.check { flex-direction: row; gap: 8px; align-items: flex-start; font-weight: 400; cursor: pointer; }
+label.check input { margin-top: 3px; flex: none; width: auto; }
+label.check strong { font-weight: 600; }
