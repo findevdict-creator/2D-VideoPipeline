@@ -161,8 +161,11 @@ test("re-planning keeps scenes and chapters that have work in them", async () =>
   const plan = (title: string) => ({ title, type: "remotion-2d" as const, narration: "Some words to say here." });
   const first = proposeScenes(studio, intro!.id, [plan("Hook"), plan("Question")]);
   saveSpec(studio, first[1]!.id, { ...SAMPLE_SPEC, title: "Question" }, "test");
-  const second = proposeScenes(studio, intro!.id, [plan("New opener"), plan("Hook")]);
-  assert.deepEqual(second.map((s) => s.title), ["New opener", "Hook", "Question"], "the worked-on scene moves to the end instead of vanishing");
+  // "Question" was built and is still in the new list: it keeps its place in the list and what was built for it.
+  const second = proposeScenes(studio, intro!.id, [plan("New opener"), plan("Question"), plan("Hook")]);
+  assert.deepEqual(second.map((s) => s.title), ["New opener", "Question", "Hook"]);
+  assert.equal(second[1]!.id, first[1]!.id);
+  assert.ok(second[1]!.currentVersionId);
   const chapters = proposeChapters(studio, project.id, [{ title: "Clocks" }, { title: "Recap" }]);
   assert.deepEqual(chapters.map((c) => c.title), ["Clocks", "Recap", "Intro"]);
   studio.close();

@@ -53,6 +53,7 @@ So that you are not left waiting for all of a long video, stages 4 and 5 overlap
 - **Each chapter shows where it stands** on the Scenes tab: not written yet, being written, scene list waiting for your approval, in production with how many scenes are approved, or done. A strip of chapter numbers at the top jumps to a chapter, and a filter shows only the scenes that need you.
 - **A chapter can be watched by itself.** "Preview this chapter" joins its scenes as they stand now, which takes seconds. A scene that is being rebuilt at that moment is left out, or shown in the version you last approved.
 - **Asking for changes to a chapter's scene list** after you approved it puts the list back up for your approval. Scenes that were already built are kept.
+- **No scene is said twice.** A scene list is refused when one of its scenes says the same as another scene, in that chapter or in another one, and Claude has to write something new. A rewritten list replaces the old one: scenes it keeps hold on to what was built for them, even under a new title, and scenes it drops are removed.
 
 ### Reviewing a scene
 
@@ -62,6 +63,7 @@ Open a scene to watch its clip with the narration, look at its test frames, read
 - **Ask for changes.** Describe them in your own words. Claude continues the same session that built the scene, so it remembers what it did, and writes a new version. Only that scene is built and rendered again. Every earlier version is kept.
 - **Compare two versions.** "Compare two side by side" plays both versions at once, in step, and lists what you asked for in between and what changed: the plan, the narration word by word, the length, and the scene's code line by line.
 - **Go back to a version.** Its clip is still there, so nothing is rendered again, and if you had approved that version it is approved again. The newer version is kept too.
+- **Move or delete a scene.** Under "Place in the video", "Move earlier" and "Move later" change where the scene plays, across a chapter's edge too, and "Delete this scene" removes it with everything built for it. Neither builds anything again: each scene keeps its own clip and narration, and the scenes are renumbered. A preview or final video made before the change is marked out of date until you make it again. From a terminal: `npm run studio -- move-scene <project> 2.3 earlier` and `npm run studio -- delete-scene <project> 2.3`.
 
 Because each scene has its own clip, joining the video takes seconds. Changing one scene of a long video costs one scene's build and render, not the whole video's.
 

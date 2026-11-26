@@ -4,6 +4,46 @@ import type { Studio } from "../studio.js";
 import { callTool, type ToolContext } from "../tools/index.js";
 import type { StudioRunner, StudioRunRequest, StudioRunResult } from "./runner.js";
 
+/** Sentences with few words in common, so the sample chapters do not repeat one another. */
+const OWN_LINES = [
+  "Picture a lighthouse sweeping its beam across dark water every night.",
+  "Bakers knead dough until gluten strands stretch like elastic threads.",
+  "Mountain climbers ration oxygen carefully above eight thousand metres.",
+  "Honeybees dance in figure eights to share flower locations.",
+  "Old sailors read weather from cloud shapes before barometers existed.",
+  "Glaciers carve valleys slowly, grinding bedrock into fine pale flour.",
+  "Violin makers tap spruce boards, listening for a bright ringing tone.",
+  "Desert foxes hunt at dusk, when sand finally cools enough.",
+  "Printers once set metal letters backwards, line after patient line.",
+  "Coral polyps build limestone reefs grain upon tiny grain.",
+  "Telegraph clerks tapped dots and dashes along copper wires overnight.",
+  "Chess engines prune millions of losing branches each second.",
+  "Potters centre wet clay with steady palms on spinning wheels.",
+  "Migrating geese trade the lead position to save energy.",
+  "Astronomers stack hundreds of faint exposures to reveal galaxies.",
+  "Blacksmiths judge temperature by colour glowing in the forge.",
+  "River deltas fan outward wherever currents drop their silt.",
+  "Librarians shelve returned books using decimal numbers on spines.",
+  "Surfers wait beyond breakers, watching swells rise far offshore.",
+  "Weavers pass shuttles through warp threads thousands of times daily.",
+  "Volcanic ash fertilises farmland decades after an eruption ends.",
+  "Cartographers once left unexplored regions blank on parchment maps.",
+  "Owls fly silently thanks to soft fringed feather edges.",
+  "Engineers test bridges with loaded trucks parked across every span.",
+  "Tea pickers pluck only two leaves plus a bud.",
+  "Divers equalise ear pressure every few metres going down.",
+  "Clockmakers poise balance wheels using screws smaller than seeds.",
+  "Salmon smell their home stream across open ocean distances.",
+  "Typesetters called capital letters upper case after wooden drawers.",
+  "Snowflakes grow six arms because water molecules bond hexagonally.",
+  "Jugglers watch the peak of each arc, never their hands.",
+  "Miners carried canaries underground as living gas alarms.",
+  "Orchards need winter chill hours before blossoms open properly.",
+  "Radio operators bounce shortwave signals off the ionosphere nightly.",
+  "Sculptors rough out marble with point chisels before rasping.",
+  "Tide pools shelter anemones, limpets, crabs and darting gobies.",
+];
+
 /**
  * Stands in for Claude: makes a small, fixed video plan by calling the same tools a real
  * run calls. For trying the whole flow, and for tests, without using your Claude plan.
@@ -106,14 +146,16 @@ export class MockStudioRunner implements StudioRunner {
         const image = (await call("asset_list", { kind: "image" })).assets[0] as { id: string } | undefined;
         // A real run reads what the earlier chapters said before it writes; so does this one.
         await call("scene_list");
+        // Each chapter says something of its own, as a real one does: a list that repeats another chapter is refused.
+        const own = (part: number) => OWN_LINES[((chapter.position - 1) * 3 + part) % OWN_LINES.length]!;
         const scenes = [
-          { title: `${chapter.title}: opening`, type: "remotion-2d", purpose: "Hook the viewer", narration: `Here is a question worth asking. ${sentence(project.description)}`, visualIdea: "The topic's name appears as a badge and rings pulse behind it" },
-          { title: `${chapter.title}: the idea`, type: "remotion-2d", purpose: "State the idea", narration: "The answer is simpler than it looks. One signal leaves, one signal arrives, and the gap between them tells the story.", visualIdea: "Two dots, a line growing from one to the other" },
+          { title: `${chapter.title}: opening`, type: "remotion-2d", purpose: "Hook the viewer", narration: `Here is a question worth asking. ${sentence(project.description)} ${own(0)}`, visualIdea: "The topic's name appears as a badge and rings pulse behind it" },
+          { title: `${chapter.title}: the idea`, type: "remotion-2d", purpose: "State the idea", narration: `The answer is simpler than it looks. One signal leaves, one signal arrives, and the gap between them tells the story. ${own(1)}`, visualIdea: "Two dots, a line growing from one to the other" },
           ...Array.from({ length: Math.max(0, this.scenesPerChapter - 2) }, (_, i) => ({
             title: `${chapter.title}: step ${i + 1}`,
             type: "remotion-2d",
             purpose: "Take the idea one step further",
-            narration: `Step ${i + 1} follows from the last one. The same signal, seen from a slightly different side, explains a little more.`,
+            narration: `Step ${i + 1} follows from the last one. The same signal, seen from a slightly different side, explains a little more. ${OWN_LINES[(chapter.position * 7 + i * 5 + 2) % OWN_LINES.length]!}`,
             visualIdea: "The two dots again, with one more line between them",
           })),
           ...(image && chapter.position === 1

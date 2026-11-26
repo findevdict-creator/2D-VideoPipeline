@@ -102,6 +102,8 @@ label input, label select, label textarea { font-weight: 400; font-size: 15px; }
 .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .btn-primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
 .btn-quiet { border-color: transparent; background: transparent; color: var(--muted); }
+.btn-danger { color: var(--bad); border-color: var(--bad); background: transparent; }
+.btn-danger:hover:not(:disabled) { background: var(--bad-bg); }
 .link { font: inherit; background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .link:disabled { opacity: 0.5; cursor: not-allowed; }
 .link.danger { color: var(--bad); }
