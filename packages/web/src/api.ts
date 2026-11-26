@@ -51,6 +51,8 @@ export const api = {
   renderScene: (id: string) => request("POST", `/api/scenes/${id}/render`, {}),
   compare: (id: string, a: number, b: number) => request<Comparison>("GET", `/api/scenes/${id}/compare?a=${a}&b=${b}`),
   exportVideo: (slug: string, options: { format: string; zoom?: number; chapterId?: string }) => request("POST", `/api/projects/${encodeURIComponent(slug)}/export`, options),
+  moveScene: (id: string, direction: "earlier" | "later") => request("POST", `/api/scenes/${id}/move`, { direction }),
+  deleteScene: (id: string) => request("DELETE", `/api/scenes/${id}`),
   rollbackScene: (id: string, version: number) => request("POST", `/api/scenes/${id}/rollback`, { version }),
   closeSharedRequest: (id: string, status: "done" | "declined") => request("POST", `/api/shared-requests/${id}/close`, { status }),
   upload: (slug: string, file: File) => request<{ id: string }>("POST", `/api/projects/${encodeURIComponent(slug)}/assets`, file, { "x-file-name": encodeURIComponent(file.name), "content-type": "application/octet-stream" }),

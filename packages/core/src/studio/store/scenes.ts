@@ -107,27 +107,68 @@ export function addScene(studio: Studio, chapterId: string, plan: ScenePlanInput
   return getScene(studio, id);
 }
 
+/** A narration reduced to its words, for telling whether two scenes say the same thing. */
+function spokenWords(narration: string): string[] {
+  return narration.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/).filter(Boolean);
+}
+
 /**
- * Set a chapter's scene list. Scenes that have been worked on (they have a version) are kept
- * and matched by title; scenes that are still only a plan are replaced.
+ * How alike two narrations are, from 0 to 1: the share of their distinct words they have in
+ * common. Two scenes that say the same thing in nearly the same words score close to 1.
  */
-export function proposeScenes(studio: Studio, chapterId: string, plans: ScenePlanInput[]): Scene[] {
+export function narrationOverlap(a: string, b: string): number {
+  const wa = new Set(spokenWords(a));
+  const wb = new Set(spokenWords(b));
+  if (!wa.size || !wb.size) return 0;
+  let both = 0;
+  for (const w of wa) if (wb.has(w)) both++;
+  return both / (wa.size + wb.size - both);
+}
+
+/** At or above this, two narrations are the same scene said twice. Short lines are left alone: they share words by chance. */
+export const SAME_SCENE_OVERLAP = 0.8;
+const MIN_WORDS_TO_COMPARE = 6;
+
+export function sayTheSame(a: string, b: string): boolean {
+  if (spokenWords(a).length < MIN_WORDS_TO_COMPARE || spokenWords(b).length < MIN_WORDS_TO_COMPARE) return false;
+  return narrationOverlap(a, b) >= SAME_SCENE_OVERLAP;
+}
+
+/**
+ * Set a chapter's scene list: it replaces the list that was there. A scene of the old list
+ * that is also in the new one is kept with everything built for it. It is recognised by its
+ * title, or by its narration when the title was reworded. Scenes of the old list that are not
+ * in the new one are removed, built or not; `removed` names the built ones.
+ */
+export function proposeScenes(studio: Studio, chapterId: string, plans: ScenePlanInput[]): Scene[] & { removed?: { id: string; title: string }[] } {
   const chapter = getChapter(studio, chapterId);
   const parsed = plans.map((p) => ScenePlanSchema.parse(p));
+  const removed: { id: string; title: string }[] = [];
+  const folders: string[] = [];
   studio.db.tx(() => {
     const existing = listScenes(studio, chapter.projectId, chapterId);
     const kept = new Set<string>();
+    const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+    // Titles first for every scene, so a reworded title never takes the scene another plan names outright.
+    const matches = parsed.map((plan) => {
+      const match = existing.find((s) => !kept.has(s.id) && same(s.title, plan.title));
+      if (match) kept.add(match.id);
+      return match;
+    });
+    parsed.forEach((plan, i) => {
+      if (matches[i]) return;
+      const match = existing.find((s) => !kept.has(s.id) && sayTheSame(sceneNarration(studio, s), plan.narration));
+      if (match) kept.add(match.id);
+      matches[i] = match;
+    });
     // Positions are unique only by convention, so park everything out of the way first.
     studio.db.run("UPDATE scenes SET position = position + 100000 WHERE chapter_id = ?", [chapterId]);
     parsed.forEach((plan, i) => {
-      const match = existing.find((s) => !kept.has(s.id) && s.title.trim().toLowerCase() === plan.title.trim().toLowerCase());
-      if (match) {
-        kept.add(match.id);
-        if (match.currentVersionId) {
-          studio.db.run("UPDATE scenes SET position = ? WHERE id = ?", [i + 1, match.id]);
-        } else {
-          studio.db.run("UPDATE scenes SET position = ?, type = ?, plan_json = ?, updated_at = ? WHERE id = ?", [i + 1, plan.type, JSON.stringify(plan), nowIso(), match.id]);
-        }
+      const match = matches[i];
+      if (match?.currentVersionId) {
+        studio.db.run("UPDATE scenes SET position = ? WHERE id = ?", [i + 1, match.id]);
+      } else if (match) {
+        studio.db.run("UPDATE scenes SET position = ?, title = ?, type = ?, plan_json = ?, updated_at = ? WHERE id = ?", [i + 1, plan.title, plan.type, JSON.stringify(plan), nowIso(), match.id]);
       } else {
         studio.db.run(
           "INSERT INTO scenes (id, project_id, chapter_id, position, title, type, plan_json, status, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'planned', ?)",
@@ -135,17 +176,22 @@ export function proposeScenes(studio: Studio, chapterId: string, plans: ScenePla
         );
       }
     });
-    let tail = parsed.length;
     for (const old of existing) {
       if (kept.has(old.id)) continue;
-      if (old.currentVersionId) studio.db.run("UPDATE scenes SET position = ? WHERE id = ?", [++tail, old.id]);
-      else studio.db.run("DELETE FROM scenes WHERE id = ?", [old.id]);
+      // Left in place, a built scene the new list dropped would play after the scenes that replaced it.
+      if (old.currentVersionId) {
+        removed.push({ id: old.id, title: old.title });
+        folders.push(projectPaths(studio, getProject(studio, chapter.projectId)).sceneDir(old.id));
+      }
+      studio.db.run("DELETE FROM scenes WHERE id = ?", [old.id]);
     }
   });
+  for (const folder of folders) fs.rmSync(folder, { recursive: true, force: true });
   studio.emit("scene.changed", { projectId: chapter.projectId });
-  return listScenes(studio, chapter.projectId, chapterId);
+  return Object.assign(listScenes(studio, chapter.projectId, chapterId), { removed });
 }
 
+/** Put a chapter's scenes in the order given. Scenes not named keep their order, after the named ones. */
 export function reorderScenes(studio: Studio, chapterId: string, orderedIds: string[]) {
   const chapter = getChapter(studio, chapterId);
   studio.db.tx(() => {
@@ -156,13 +202,59 @@ export function reorderScenes(studio: Studio, chapterId: string, orderedIds: str
   studio.emit("scene.changed", { projectId: chapter.projectId });
 }
 
+/**
+ * Move a scene one place earlier or later in the video. At the edge of its chapter it crosses
+ * into the neighbouring chapter: earlier puts it last in the chapter before, later puts it
+ * first in the chapter after. Nothing is built or rendered again, because a scene's clip and
+ * narration are its own; videos already joined are out of date until they are joined again.
+ */
+export function moveScene(studio: Studio, sceneId: string, direction: "earlier" | "later"): Scene {
+  const scene = getScene(studio, sceneId);
+  if (scene.status === "in_production") throw new Error("Claude is working on this scene right now. Wait for that run to finish, or stop it, before moving the scene.");
+  const siblings = listScenes(studio, scene.projectId, scene.chapterId);
+  const at = siblings.findIndex((s) => s.id === sceneId);
+  const swapWith = siblings[at + (direction === "earlier" ? -1 : 1)];
+  if (swapWith) {
+    const order = siblings.map((s) => s.id);
+    [order[at], order[order.indexOf(swapWith.id)]] = [swapWith.id, sceneId];
+    reorderScenes(studio, scene.chapterId, order);
+  } else {
+    const chapters = studio.db.all<{ id: string }>("SELECT id FROM chapters WHERE project_id = ? ORDER BY position", [scene.projectId]).map((c) => c.id);
+    const next = chapters[chapters.indexOf(scene.chapterId) + (direction === "earlier" ? -1 : 1)];
+    if (!next) throw new Error(direction === "earlier" ? "This is already the first scene of the video." : "This is already the last scene of the video.");
+    studio.db.tx(() => {
+      studio.db.run("UPDATE scenes SET position = position - 1 WHERE chapter_id = ? AND position > ?", [scene.chapterId, scene.position]);
+      if (direction === "earlier") {
+        const last = studio.db.get<{ n: number }>("SELECT COALESCE(MAX(position), 0) AS n FROM scenes WHERE chapter_id = ?", [next])!.n;
+        studio.db.run("UPDATE scenes SET chapter_id = ?, position = ?, updated_at = ? WHERE id = ?", [next, last + 1, nowIso(), sceneId]);
+      } else {
+        studio.db.run("UPDATE scenes SET position = position + 1 WHERE chapter_id = ?", [next]);
+        studio.db.run("UPDATE scenes SET chapter_id = ?, position = 1, updated_at = ? WHERE id = ?", [next, nowIso(), sceneId]);
+      }
+    });
+    syncChapterStatus(studio, scene.chapterId);
+    syncChapterStatus(studio, next);
+  }
+  studio.emit("scene.changed", { projectId: scene.projectId, targetId: sceneId });
+  return getScene(studio, sceneId);
+}
+
+/**
+ * Remove a scene from the video, with every version, clip and recording made for it. The
+ * scenes after it move up. This cannot be undone.
+ */
 export function deleteScene(studio: Studio, sceneId: string) {
   const scene = getScene(studio, sceneId);
+  if (scene.status === "in_production") throw new Error("Claude is working on this scene right now. Wait for that run to finish, or stop it, before deleting the scene.");
+  if (listScenes(studio, scene.projectId).length === 1) throw new Error("This is the only scene of the video. A video needs at least one scene.");
+  const folder = projectPaths(studio, getProject(studio, scene.projectId)).sceneDir(sceneId);
   studio.db.tx(() => {
     studio.db.run("DELETE FROM scenes WHERE id = ?", [sceneId]);
     studio.db.run("UPDATE scenes SET position = position - 1 WHERE chapter_id = ? AND position > ?", [scene.chapterId, scene.position]);
   });
+  fs.rmSync(folder, { recursive: true, force: true });
   studio.emit("scene.changed", { projectId: scene.projectId, targetId: sceneId });
+  syncChapterStatus(studio, scene.chapterId);
 }
 
 /** Set a scene's status. For "stale" and "failed", `staleReason` says why the scene needs attention. */

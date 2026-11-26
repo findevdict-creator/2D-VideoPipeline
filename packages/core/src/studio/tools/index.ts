@@ -25,6 +25,7 @@ import {
   getScene,
   listReviews,
   listScenes,
+  sayTheSame,
   proposeScenes,
   saveSpec,
   sceneLabel,
@@ -458,7 +459,8 @@ const tools: ToolDef<any>[] = [
   }),
   defineTool({
     name: "scenes_propose",
-    description: "Set the scene list of your chapter: each scene's title, type, exact narration and a sentence on what the viewer sees. Replaces the earlier list of this chapter.",
+    description:
+      "Set the scene list of your chapter: each scene's title, type, exact narration and a sentence on what the viewer sees. Replaces the earlier list of this chapter: a scene you leave out is removed, even if it was already built, and a scene you keep (same title, or the same narration under a new title) keeps what was built for it. Two scenes that say the same thing are refused.",
     writers: ["chapter"],
     input: z.object({ scenes: z.array(ScenePlanSchema).min(1).max(60) }),
     handler: (ctx, { scenes }) => {
@@ -475,6 +477,16 @@ const tools: ToolDef<any>[] = [
       titles.forEach((t, i) => {
         if (titles.indexOf(t) !== i) problems.push(`scenes.${i}: the title "${scenes[i]!.title}" is used twice. Titles must differ.`);
       });
+      // The same thing said twice is the commonest fault of a scene list: within the chapter, or again in a later chapter.
+      scenes.forEach((s, i) => {
+        const twin = scenes.findIndex((other, j) => j < i && sayTheSame(other.narration, s.narration));
+        if (twin >= 0) problems.push(`scenes.${i}: "${s.title}" says the same as scenes.${twin}, "${scenes[twin]!.title}". Each scene must tell the viewer something new. Remove one, or make it a different point.`);
+      });
+      const elsewhere = listScenes(studio, project.id).filter((s) => s.chapterId !== chapter.id);
+      scenes.forEach((s, i) => {
+        const twin = elsewhere.find((other) => sayTheSame(sceneNarration(studio, other), s.narration));
+        if (twin) problems.push(`scenes.${i}: "${s.title}" says the same as scene ${sceneLabel(studio, twin)}, "${twin.title}", in another chapter. Do not repeat it: leave it out, or say what is new here.`);
+      });
       const hasKind = (kind: string) => listAssets(studio, project.id).some((a) => a.kind === kind);
       if (scenes.some((s) => s.type === "illustration") && !hasKind("image")) problems.push("An illustration scene needs an image, and this project has none. Use another type.");
       if (scenes.some((s) => s.type === "footage") && !hasKind("video")) problems.push("A footage scene needs a video clip, and this project has none. Use another type.");
@@ -484,6 +496,7 @@ const tools: ToolDef<any>[] = [
       return {
         saved: true,
         scenes: saved.map((s) => ({ id: s.id, label: sceneLabel(studio, s), title: s.title, type: s.type })),
+        ...(saved.removed?.length ? { removedBuiltScenes: saved.removed.map((s) => s.title), note: "Scenes of the earlier list that are not in this one were removed, including the built ones named here." } : {}),
         estimatedSec: Math.round((words / 150) * 60),
         chapterTargetSec: chapter.targetDurationSec,
       };

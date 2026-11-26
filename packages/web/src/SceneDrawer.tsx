@@ -29,6 +29,9 @@ export function SceneDrawer({ sceneId, snapshot, refreshKey, onClose }: { sceneI
   const run = scene.runs[0];
   const working = scene.status === "in_production";
   const planning = !scene.current;
+  const order = snapshot.scenes.map((s) => s.id);
+  const first = order[0] === scene.id;
+  const last = order.at(-1) === scene.id;
   const stageIsScenes = snapshot.project.stage === "scenes" || snapshot.project.stage === "assembly";
 
   return (
@@ -133,6 +136,33 @@ export function SceneDrawer({ sceneId, snapshot, refreshKey, onClose }: { sceneI
           </>
         )}
         <References scene={scene} snapshot={snapshot} onChanged={load} />
+        <h4>Place in the video</h4>
+        <div className="row wrap centred">
+          <button className="btn" disabled={busy || working || first} onClick={() => act(async () => (await api.moveScene(scene.id, "earlier"), load()))} title="Play this scene one place earlier">
+            ↑ Move earlier
+          </button>
+          <button className="btn" disabled={busy || working || last} onClick={() => act(async () => (await api.moveScene(scene.id, "later"), load()))} title="Play this scene one place later">
+            ↓ Move later
+          </button>
+          <span className="grow" />
+          <button
+            className="btn btn-danger"
+            disabled={busy || working || order.length < 2}
+            onClick={() => {
+              const built = scene.current ? " Everything built for it is deleted too." : "";
+              if (!confirm(`Delete scene ${scene.label}, “${scene.title}”?${built} This cannot be undone.`)) return;
+              void act(async () => {
+                await api.deleteScene(scene.id);
+                onClose();
+              }, "Scene deleted");
+            }}
+          >
+            Delete this scene
+          </button>
+        </div>
+        <p className="muted small">
+          Moving or deleting a scene builds nothing again: every scene keeps its own clip and narration, and the scenes are renumbered. A preview or final video made before the change is marked as out of date until you make it again.
+        </p>
         {version?.summary && (
           <>
             <h4>What Claude says it built</h4>

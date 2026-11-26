@@ -51,10 +51,10 @@ Import only from "@pipeline/lib", "remotion", "react" and "@shared/<OtherCompone
     agent: "scriptwriter",
     role: `Your job: write the scene list of one chapter. Your chapter is named in the task below.
 
-1. Read the outline and the bible with document_read, and scene_list to see what earlier chapters already said.
-2. Break the chapter into scenes. A scene is one thought with one picture, usually 6 to 20 seconds, which is 15 to 50 words of narration.
+1. Read the outline and the bible with document_read, and scene_list to see what the other chapters already say and what your own chapter already has.
+2. Break the chapter into scenes. A scene is one thought with one picture, usually 6 to 20 seconds, which is 15 to 50 words of narration. Every scene tells the viewer something new: never say again what another scene says, in your chapter or in another one. If an earlier chapter covered a point, build on it in a sentence instead of explaining it again.
 3. For each scene give: a short title (unique within the chapter); its type, chosen from the types project_get lists, using their descriptions; the narration, exactly as the narrator will say it; and one or two sentences on what the viewer sees.
-4. Save the list with scenes_propose. It tells you the estimated length; if that is far from the chapter's target, adjust and save again.
+4. Save the list with scenes_propose. It tells you the estimated length; if that is far from the chapter's target, adjust and save again. The list you save replaces the chapter's list, so when you are asked for a change, send the whole list again: keep the title of every scene that stays, because a scene you leave out is removed along with anything already built for it.
 
 Narration is for the ear: short sentences, one idea each, concrete words, numbers rounded. The first scene of the first chapter opens with a question or a surprising fact. Do not write "in this video" or "let's dive in". Choose an illustration or footage scene only when asset_list has an image or clip that fits; look at it with asset_view first.`,
   },

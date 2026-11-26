@@ -19,7 +19,7 @@ import type { ModelInfo } from "@studio/core/studio/assets/gltf";
 import { getChapter } from "@studio/core/studio/store/chapters";
 import { createProject, getProject, updateProject } from "@studio/core/studio/store/projects";
 import { getRun, readRunLog } from "@studio/core/studio/store/runs";
-import { getScene, rollbackScene, setTheme, updatePlan } from "@studio/core/studio/store/scenes";
+import { deleteScene, getScene, moveScene, rollbackScene, setTheme, updatePlan } from "@studio/core/studio/store/scenes";
 import { closeSharedRequest } from "@studio/core/studio/store/shared";
 import { Orchestrator } from "@studio/core/studio/workflow";
 import { exportFormat, MAX_ZOOM } from "@studio/core/studio/export";
@@ -179,6 +179,16 @@ export async function startServer(studio: Studio, opts: { port?: number; orchest
   });
   route("GET", "/api/scenes/:scene/compare", ({ params, url }) => sceneComparison(studio, params.scene!, Number(url.searchParams.get("a")), Number(url.searchParams.get("b"))));
   route("POST", "/api/scenes/:scene/rollback", ({ params, body }) => ({ status: rollbackScene(studio, params.scene!, Number(body.version)).status }));
+  // Changing the order or removing a scene builds nothing: clips and narration belong to each scene. Joined videos show as out of date.
+  route("POST", "/api/scenes/:scene/move", ({ params, body }) => {
+    if (body?.direction !== "earlier" && body?.direction !== "later") throw new Refused('Say which way: direction is "earlier" or "later".');
+    const scene = moveScene(studio, params.scene!, body.direction);
+    return { chapterId: scene.chapterId, position: scene.position };
+  });
+  route("DELETE", "/api/scenes/:scene", ({ params }) => {
+    deleteScene(studio, params.scene!);
+    return { ok: true };
+  });
   route("POST", "/api/shared-requests/:id/close", ({ params, body }) => {
     closeSharedRequest(studio, params.id!, body?.status === "done" ? "done" : "declined");
     return { ok: true };

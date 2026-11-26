@@ -69,7 +69,9 @@ export function scenesChangedSince(studio: Studio, render: Render): number {
   const inVideo = new Set(render.sceneVersions.map((v) => v.versionId));
   const changed = now.filter((s) => !inVideo.has(s.currentVersionId!)).length;
   const gone = render.sceneVersions.filter((v) => !now.some((s) => s.id === v.sceneId)).length;
-  return changed + gone;
+  if (changed + gone) return changed + gone;
+  // The same scenes in another order are another video: count the ones that no longer sit where they were.
+  return now.filter((s, i) => render.sceneVersions[i]?.sceneId !== s.id).length;
 }
 
 /** One scene's place in a video being joined. */

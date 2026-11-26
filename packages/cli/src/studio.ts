@@ -7,7 +7,7 @@ import { listChapters } from "@studio/core/studio/store/chapters";
 import { createProject, getProject, listProjects, projectPaths, updateProject } from "@studio/core/studio/store/projects";
 import { listRuns, readRunLog } from "@studio/core/studio/store/runs";
 import { Orchestrator } from "@studio/core/studio/workflow";
-import { findScene, getScene, listReviews, listScenes, listVersions, rollbackScene, sceneLabel, setTheme } from "@studio/core/studio/store/scenes";
+import { deleteScene, findScene, getScene, listReviews, listScenes, listVersions, moveScene, rollbackScene, sceneLabel, setTheme } from "@studio/core/studio/store/scenes";
 import { compareVersions } from "@studio/core/studio/scenes/compare";
 import { EXPORT_FORMATS, exportFormat, exportVideo, listExports } from "@studio/core/studio/export";
 import { ensureVoice } from "@studio/core/studio/voice";
@@ -32,6 +32,8 @@ Usage:
   npm run studio -- approve-chapter <project> <number>   approve one chapter's scene list and build its scenes
   npm run studio -- approve-scene <project> <scene|all>
   npm run studio -- revise <project> <scene> --notes "<what to change>"
+  npm run studio -- move-scene <project> <scene> <earlier|later>   play a scene one place earlier or later; nothing is built again
+  npm run studio -- delete-scene <project> <scene>   remove a scene and everything built for it (--yes to skip the question)
   npm run studio -- refresh <project>                render every out-of-date scene again, after a shared part changed
   npm run studio -- projects                         list projects in the workspace
   npm run studio -- import <production-folder>       bring a pipeline production in as a project
@@ -82,6 +84,7 @@ async function main() {
       runner: { type: "string" },
       model: { type: "string" },
       final: { type: "boolean", default: false },
+      yes: { type: "boolean", default: false },
       chapter: { type: "string" },
       label: { type: "string" },
       minutes: { type: "string" },
@@ -120,7 +123,7 @@ async function run(
   studio: Studio,
   command: string,
   rest: string[],
-  flags: { final: boolean; chapter?: string; label?: string; reference?: string; note?: string; minutes?: string; seconds?: string; title?: string; notes?: string; at?: string; volume?: string; "pause-volume"?: string; steady?: boolean; format?: string; zoom?: string },
+  flags: { final: boolean; yes?: boolean; chapter?: string; label?: string; reference?: string; note?: string; minutes?: string; seconds?: string; title?: string; notes?: string; at?: string; volume?: string; "pause-volume"?: string; steady?: boolean; format?: string; zoom?: string },
 ) {
   const log = (message: string) => console.log(message);
   const quality = flags.final ? "final" : "preview";
@@ -140,6 +143,29 @@ async function run(
     }
     const project = createProject(studio, { description: required(rest[0], "description"), title: flags.title, targetDurationSec: seconds });
     console.log(`Created project ${project.slug} ("${project.title}", ${readable(project.targetDurationSec)}).\nNext: npm run studio -- start ${project.slug}`);
+    return;
+  }
+  if (command === "move-scene") {
+    const project = getProject(studio, required(rest[0], "project"));
+    const scene = findScene(studio, project.id, required(rest[1], "scene"));
+    const direction = required(rest[2], "direction: earlier or later");
+    if (direction !== "earlier" && direction !== "later") throw new Error('Say which way: "earlier" or "later".');
+    const moved = moveScene(studio, scene.id, direction);
+    console.log(`"${moved.title}" is now scene ${sceneLabel(studio, moved)}. Videos joined before this are out of date: assemble again.`);
+    return;
+  }
+  if (command === "delete-scene") {
+    const project = getProject(studio, required(rest[0], "project"));
+    const scene = findScene(studio, project.id, required(rest[1], "scene"));
+    const label = sceneLabel(studio, scene);
+    if (!flags.yes) {
+      const rl = (await import("node:readline/promises")).createInterface({ input: process.stdin, output: process.stdout });
+      const answer = await rl.question(`Delete scene ${label}, "${scene.title}", and everything built for it? This cannot be undone. Type yes: `);
+      rl.close();
+      if (answer.trim().toLowerCase() !== "yes") return console.log("Nothing was deleted.");
+    }
+    deleteScene(studio, scene.id);
+    console.log(`Deleted scene ${label}, "${scene.title}". The scenes after it were renumbered.`);
     return;
   }
   if (command === "status") {
