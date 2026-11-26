@@ -2,7 +2,7 @@
 
 A studio for making explainer videos scene by scene. You describe the video. Claude plans it, builds every scene as its own small animation, and you review each scene by itself: approve it, or say what should change and only that scene is rebuilt.
 
-**Status:** Phases 1 to 3 of the scene studio are complete: projects, a local database, per-scene clips, your own images and video clips, an MCP server that Claude works through, parallel scene building, a GUI, five ways to make a scene (2D animation, 3D with react-three-fiber including models you made in Blender, Manim, images and video clips), and long videos that are written, approved, built and previewed one chapter at a time, with work that waits out Claude's usage limit and carries on by itself. Sound and finishing come next (see [Roadmap](#roadmap)). The original command-line pipeline still works and is described [further down](#the-original-pipeline).
+**Status:** Phases 1 to 4 of the scene studio are complete: projects, a local database, per-scene clips, your own images and video clips, an MCP server that Claude works through, parallel scene building, a GUI, five ways to make a scene (2D animation, 3D with react-three-fiber including models you made in Blender, Manim, images and video clips), and long videos that are written, approved, built and previewed one chapter at a time, with work that waits out Claude's usage limit and carries on by itself, references attached to single scenes, characters that stay the same from scene to scene, a hand-drawn look, sound effects on the narrator's words and music that dips under the voice. Finishing comes next (see [Roadmap](#roadmap)). The original command-line pipeline still works and is described [further down](#the-original-pipeline).
 
 ## Quick start
 
@@ -35,7 +35,7 @@ A project moves through six stages. Claude does the work of a stage, then the st
 |---|---|---|
 | 1. Outline | Splits your description into chapters, each with a length | The outline and the chapter list |
 | 2. Bible | Writes the rules every scene follows: voice, look, colours, motion, and the things that recur | The bible and the colour theme |
-| 3. Shared parts | Builds each recurring thing once as a component, with a preview picture | Each component |
+| 3. Shared parts | Builds each recurring thing once, with a preview picture: components, and characters with their poses and expressions | Each part |
 | 4. Scene list | Writes the scenes of each chapter, one chapter after another: narration, what the viewer sees, and the scene's type | Each chapter's scenes. You can edit a scene's narration, idea or type by hand |
 | 5. Scenes | Records the narration, then builds every scene, several at a time. Each scene is checked, test-rendered, and rendered to its own clip | Each scene, one by one |
 | 6. Video | Joins the approved clips with the narration, and writes subtitles | The finished video |
@@ -101,13 +101,37 @@ Under **Assets**, drop in images, video clips, sounds and 3D models. Claude can 
 
 Any image or clip can also be marked as a **reference** for style, layout or motion, with a note on what to take from it. A reference is a direction, not a target: Claude looks at it and follows the note, and does not try to reproduce it.
 
+- **For the whole video**, mark it under Assets. Every run sees it.
+- **For one scene**, open the scene and attach it under "References for this scene". For a video you pick the moment to follow from one frame of each shot. The scene's builder is shown that frame first, and the scene drawer then shows the reference next to what was built, so you can judge whether the composition was followed.
+- **Reference videos are read shot by shot.** The studio finds the cuts, takes the calmest frame of each shot and lays them out on a contact sheet with their times ("Show one frame of each shot" on the asset, or `npm run studio -- keyframes <project> <asset>`). Claude looks at the sheet and at single frames instead of guessing from a video's first picture.
+
+### Characters
+
+A character that appears in more than one scene is a shared part of its own kind. It is built once, at the Shared parts stage, with [`defineCharacter`](packages/lib/README.md#characters-studio): a fixed drawing size, fixed colours, and a written-out list of poses and expressions. Its preview is a sheet of every pose and every expression, which is what you approve.
+
+A scene can only place the character: where it stands, how tall it is, which pose and expression, which way it faces, and whether it is talking. It cannot stretch it, recolour it or invent a pose, and the scene's check refuses a pose or an expression the character does not have. That is what keeps one character the same in every scene, built in parallel by different runs.
+
+### The hand-drawn look
+
+Under **Plan → Look → Lines**, a video can be drawn clean or hand-drawn. Hand-drawn makes every edge waver slightly and redraws the wobble a few times a second, the way a line drawn again for each frame does. Captions stay sharp. It applies to 2D, 3D and image scenes, not to video clips and Manim scenes.
+
+Changing the look, the colours or the font marks the scenes already drawn as out of date, and "Render all again" on the Scenes tab redraws them without a Claude run.
+
+### Sound effects and music
+
+**Sound effects.** A scene can put a short sound on a phrase of its narration, such as a pop as a label appears. The sound starts so that it is heard on the word, including a whoosh, whose loudest moment lands on the cue. Six sounds are built in (pop, click, tick, ding, thud, whoosh) and any sound you added under Assets can be used too. The scene drawer lists a scene's effects and when they play.
+
+**Music.** Under **Plan → Sound**, choose one of your sounds as music. It is repeated to the length of the video, fades in at the start and out at the end, plays quietly under the narration and comes up where nobody speaks for a moment, then goes back down before the next words. Short gaps between sentences are ignored, so it does not pump. You set both levels, or keep the music at one level.
+
+Sound is mixed when a scene's review copy, a preview or the final video is put together. Changing an effect, the music or a level never renders a scene again.
+
 ## How Claude works on a project
 
 Each piece of work is one Claude Code session, started in the background with `claude -p`. The session gets a role (planner, art director, foundation builder, scriptwriter or scene builder), a task, and a connection to the studio's **MCP server** in [`packages/mcp/`](packages/mcp/). Everything Claude does to a project goes through that server's tools.
 
 | Tools | Who may call them |
 |---|---|
-| `project_get`, `document_read`, `scene_list`, `scene_get`, `asset_list`, `asset_view`, `shared_list`, `shared_get` | Every run. They only read |
+| `project_get`, `document_read`, `scene_list`, `scene_get`, `asset_list`, `asset_view`, `reference_keyframes`, `shared_list`, `shared_get` | Every run. They only read |
 | `document_save`, `chapters_propose` | The outline run |
 | `document_save`, `theme_set`, `shared_plan` | The bible run |
 | `shared_save` | The shared parts run |
@@ -155,6 +179,11 @@ npm run studio -- refresh <project>           # render every out-of-date scene a
 npm run studio -- assemble <project> --chapter 1    # a preview of one chapter
 npm run studio -- assemble <project> --final
 npm run studio -- asset add <project> photo.png --reference style --note "the colours, not the people"
+npm run studio -- keyframes <project> rival.mp4      # one frame of each shot, and a contact sheet
+npm run studio -- reference <project> 1.3 rival.mp4 --reference layout --at 12.5 --note "the split screen"
+npm run studio -- look <project> hand-drawn
+npm run studio -- music <project> calm.mp3 --volume 0.12 --pause-volume 0.4    # or "off"; --steady for one level
+npm run studio -- sfx <project> off                  # leave out the sound effects scenes ask for
 npm run studio -- import examples/how-gps-works     # bring a pipeline production in as a project
 npm run studio -- --help
 ```
@@ -170,7 +199,7 @@ Projects live in a **workspace** folder outside the repository: `~/VideoStudio` 
   studio.db                      SQLite: projects, chapters, scenes and their versions, assets, runs, reviews, clips, renders
   projects/<project>/
     assets/                      your images, clips and sounds, stored once by content
-    shared/components/           the current shared parts, imported by scenes as "@shared/<Name>"
+    shared/components/           the current shared parts and characters, imported by scenes as "@shared/<Name>"
     shared/versions/, previews/  every saved version of each shared part, and its preview picture
     voice/<scene>/               the narration, one file per wording
     scenes/<scene>/v1/, v2/ ...  one folder per version: spec.json, scene.tsx or scene.py, stills/, clip-*.mp4, review-*.mp4
@@ -179,6 +208,8 @@ Projects live in a **workspace** folder outside the repository: `~/VideoStudio` 
 ```
 
 The database is the record of what exists and what state it is in. The files are the things themselves, so you can open any scene file or clip directly.
+
+Some settings belong to a project and are changed in the GUI or with the commands above, not in the settings file: the kinds of scene Claude may use, the colours, font and look, the music and its two levels, and whether sound effects play.
 
 The GUI's server listens on your own computer only (`127.0.0.1`) and refuses requests that come from other websites.
 
@@ -218,7 +249,7 @@ REMOTION_BROWSER_EXECUTABLE=/path/to/chrome npm test
 
 Code map:
 
-- `packages/core/src/studio/`: the studio. `db/` and `store/` hold the database and everything kept in it, `model/` the scene format, `renderers/` and `scenes/` turn a scene into stills and a clip, `assemble.ts` joins clips, `tools/` are the tools Claude calls, `runs/` starts Claude and holds the prompts, and `workflow.ts` runs the stages, the queue and the approvals
+- `packages/core/src/studio/`: the studio. `db/` and `store/` hold the database and everything kept in it, `model/` the scene format, `renderers/` and `scenes/` turn a scene into stills and a clip, `assets/` reads what you add (models, and the shots of a reference video), `sound/` makes the built-in sounds and mixes voice, effects and music, `assemble.ts` joins clips, `tools/` are the tools Claude calls, `runs/` starts Claude and holds the prompts, and `workflow.ts` runs the stages, the queue and the approvals
 - `packages/mcp/`: the MCP server that gives a Claude run its tools
 - `packages/server/`: the local server behind the GUI
 - `packages/web/`: the GUI, a React app that the server bundles when it starts
@@ -232,7 +263,7 @@ Code map:
 1. **Scene studio** (done): projects and database, per-scene clips, images and footage, MCP server, shared parts, parallel scene runs, GUI
 2. **More ways to make a scene** (done): 3D scenes with react-three-fiber, models from Blender as glTF, and Manim
 3. **Long videos** (done): chapters that are written, approved, built and previewed one at a time, work that waits out Claude's usage limit, and one action to bring out-of-date scenes up to date
-4. **Consistency and sound**: stronger use of references and recurring characters, sound effects and music
+4. **Consistency and sound** (done): references for single scenes and reference videos read shot by shot, characters with fixed proportions and colours, a hand-drawn look, sound effects on cue words, and music that dips under the voice
 5. **Finishing**: comparing versions side by side, and export options
 
 Remotion is free for individuals and companies of up to three people. Larger companies need a [Remotion company license](https://www.remotion.dev/license).

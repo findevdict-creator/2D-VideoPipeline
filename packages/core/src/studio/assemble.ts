@@ -5,11 +5,10 @@ import { slugify } from "../production.js";
 import { loadPronunciations } from "../voice/text.js";
 import { newId, nowIso } from "./ids.js";
 import { ffmpeg } from "./media/ffmpeg.js";
-import { layVoiceTrack } from "./media/wav.js";
 import { captionPages } from "./renderers/sceneData.js";
 import { renderSceneClip } from "./scenes/render.js";
+import { buildSoundtrack, mixArgs } from "./sound/mix.js";
 import type { Studio } from "./studio.js";
-import { findAsset } from "./store/assets.js";
 import { getChapter } from "./store/chapters.js";
 import type { Clip, ClipQuality } from "./store/clips.js";
 import { fromRow, fromRows } from "./store/mapping.js";
@@ -62,7 +61,7 @@ export function listRenders(studio: Studio, projectId: string): Render[] {
 }
 
 /**
- * Join scene clips into one video with narration, music and a subtitle file. Clips are
+ * Join scene clips into one video with narration, music, sound effects and a subtitle file. Clips are
  * joined without re-encoding, so this takes seconds once the clips exist; only scenes
  * whose clip is missing or out of date are rendered.
  */
@@ -131,7 +130,6 @@ export async function assemble(studio: Studio, projectId: string, opts: Assemble
   // Lay everything out on the frame grid.
   const pronunciations = await loadPronunciations(studio.config);
   const captions: Caption[][] = [];
-  const voice: { file: string; startFrame: number; frames: number }[] = [];
   const sceneVersions: Render["sceneVersions"] = [];
   let start = 0;
   for (const part of parts) {
@@ -139,7 +137,6 @@ export async function assemble(studio: Studio, projectId: string, opts: Assemble
     const track = version.voiceTrackId ? getVoiceTrack(studio, version.voiceTrackId) : undefined;
     const frames = part.clip.durationFrames;
     if (track) {
-      voice.push({ file: p.abs(track.audioPath), startFrame: start, frames });
       const ms = (frame: number) => ((start + frame) / project.fps) * 1000;
       for (const page of captionPages(studio, track, project.fps, pronunciations)) {
         captions.push(page.tokens.map((t) => ({ text: t.text, startMs: ms(t.startFrame), endMs: ms(t.endFrame), timestampMs: null, confidence: null })));
@@ -156,8 +153,7 @@ export async function assemble(studio: Studio, projectId: string, opts: Assemble
   try {
     const list = path.join(work, "clips.txt");
     fs.writeFileSync(list, parts.map((part) => `file '${p.abs(part.clip.path).split(path.sep).join("/").replace(/'/g, "'\\''")}'`).join("\n") + "\n");
-    const voiceFile = path.join(work, "voice.wav");
-    layVoiceTrack(voice, project.fps, voiceFile);
+    const sound = await buildSoundtrack(studio, project, sceneVersions, work, log);
 
     const scope = opts.chapterId ? `chapter-${getChapter(studio, opts.chapterId).position}` : "video";
     const n = (studio.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM renders WHERE project_id = ?", [project.id])?.n ?? 0) + 1;
@@ -165,18 +161,11 @@ export async function assemble(studio: Studio, projectId: string, opts: Assemble
     fs.mkdirSync(p.renders, { recursive: true });
     const output = path.join(p.renders, `${name}.mp4`);
 
-    const music = project.settings.music.assetId ? findAsset(studio, project.id, project.settings.music.assetId) : undefined;
-    const args = ["-f", "concat", "-safe", "0", "-i", list, "-i", voiceFile];
-    if (music) {
-      args.push(
-        "-stream_loop", "-1", "-i", p.abs(music.path),
-        "-filter_complex",
-        `[1:a]aresample=48000[voice];[2:a]aresample=48000,volume=${project.settings.music.volume}[music];[voice][music]amix=inputs=2:duration=first:normalize=0[mix]`,
-        "-map", "0:v", "-map", "[mix]",
-      );
-    } else {
-      args.push("-map", "0:v", "-map", "1:a", "-ar", "48000");
-    }
+    // Narration, music dipped under it, and the scenes' sound effects, mixed in one pass.
+    const mix = mixArgs(sound, 1);
+    const args = ["-f", "concat", "-safe", "0", "-i", list, ...mix.inputs];
+    if (mix.filter) args.push("-filter_complex", mix.filter);
+    args.push("-map", "0:v", "-map", mix.map, "-ar", "48000");
     args.push("-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-t", durationSec.toFixed(3), "-movflags", "+faststart", output);
     await ffmpeg(args);
 

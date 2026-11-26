@@ -18,6 +18,10 @@ export class MockStudioRunner implements StudioRunner {
   delayMs = 0;
   /** Scenes written for each chapter. Raise it to try a long video. */
   scenesPerChapter = 2;
+  /** Put sound effects on the cues of every scene. */
+  sfx = true;
+  /** Give the video a recurring character. Left unset, it follows whether the description asks for one. */
+  character?: boolean;
   /** Called before every tool call. Throw a UsageLimitError from it to stand in for Claude's usage limit. */
   beforeTool?: (req: StudioRunRequest, tool: string) => void;
 
@@ -64,7 +68,7 @@ export class MockStudioRunner implements StudioRunner {
       }
       case "bible": {
         await call("document_read", { kind: "outline" });
-        for (const ref of info.references as { assetId: string }[]) await call("asset_view", { assetId: ref.assetId });
+        for (const ref of info.references as { assetId: string; kind?: string }[]) await call(ref.kind === "video" ? "reference_keyframes" : "asset_view", { assetId: ref.assetId });
         await call("theme_set", {
           theme: {
             visualStyle: "Flat vector shapes on a deep blue background, with soft glows",
@@ -77,14 +81,22 @@ export class MockStudioRunner implements StudioRunner {
           kind: "bible",
           markdown: `# Bible\n\n## Voice\n\nFriendly and exact. Short sentences.\n\n## Look\n\nDeep blue backgrounds, light text, one accent colour for the thing being explained.\n\n## Motion\n\nThings fade and rise in over half a second. Backgrounds never move.\n\n## Recurring things\n\n- TopicBadge: a rounded badge that names the idea on screen.\n\n## Glossary\n\nNone yet.${notes ? `\n\n_Revised: ${notes}_` : ""}`,
         });
-        await call("shared_plan", { items: [{ name: "TopicBadge", brief: "A rounded badge with a short label. Props: label, x, y, progress (0 to 1 entrance)." }] });
-        text = "Wrote the bible, set the theme and planned one shared component.";
+        const withCharacter = this.character ?? /\b(character|mascot|presenter)\b/i.test(project.description);
+        await call("shared_plan", {
+          items: [
+            { name: "TopicBadge", brief: "A rounded badge with a short label. Props: label, x, y, progress (0 to 1 entrance)." },
+            ...(withCharacter
+              ? [{ name: "Guide", kind: "character", brief: "The video's guide: a round-headed figure in a jacket of the primary colour. Poses: stand, point, wave. Expressions: calm, happy, surprised." }]
+              : []),
+          ],
+        });
+        text = `Wrote the bible, set the theme and planned ${withCharacter ? "a shared component and a character" : "one shared component"}.`;
         break;
       }
       case "foundation": {
         const { shared } = await call("shared_list");
-        for (const item of shared as { name: string }[]) {
-          await call("shared_save", { name: item.name, code: badgeCode(item.name, notes), notes: notes ?? "First version" });
+        for (const item of shared as { name: string; kind?: string }[]) {
+          await call("shared_save", { name: item.name, code: item.kind === "character" ? characterCode(item.name, notes) : badgeCode(item.name, notes), notes: notes ?? "First version" });
         }
         text = `Built ${shared.length} shared component(s).`;
         break;
@@ -123,6 +135,10 @@ export class MockStudioRunner implements StudioRunner {
           ...(words.length > 9 ? [{ id: "second", phrase: phrase(Math.floor(words.length / 2)), action: "the second thing appears" }] : []),
         ];
         const shared = (scene.sharedAssets as { name: string; version: number }[]).find((s) => s.name === "TopicBadge");
+        const guide = (scene.sharedAssets as { name: string; version: number; kind?: string; poses?: string[]; expressions?: string[] }[]).find((s) => s.kind === "character");
+        // References attached to the scene are looked at, and written down as followed.
+        const references = (scene.references as { assetId: string; kind?: string; role: string; note: string }[]).map((r) => ({ assetId: r.assetId, role: r.role, note: r.note }));
+        for (const ref of scene.references as { assetId: string; kind?: string }[]) await call(ref.kind === "video" ? "reference_keyframes" : "asset_view", { assetId: ref.assetId });
         const base = {
           type: scene.type,
           title: scene.plan.title ?? scene.spec.title,
@@ -130,6 +146,9 @@ export class MockStudioRunner implements StudioRunner {
           narration,
           visual: { description: scene.plan.visualIdea || "A badge and a growing line", elements: cues.map((c) => ({ id: c.id, kind: "shape", description: c.action })) },
           cues,
+          references,
+          // A pop as the first thing appears, and a small bell on the second.
+          sfx: this.sfx ? [{ sound: "pop", at: { cue: "first" } }, ...(cues.length > 1 ? [{ sound: "ding", at: { cue: "second" }, volume: 0.4 }] : [])] : [],
         };
         if (scene.type === "illustration") {
           const image = (await call("asset_list", { kind: "image" })).assets[0] as { id: string };
@@ -142,10 +161,17 @@ export class MockStudioRunner implements StudioRunner {
             },
           });
         } else {
-          const saved = await call("scene_save_spec", { spec: { ...base, uses: shared ? [{ name: shared.name, version: shared.version }] : [] } });
+          const draws2d = scene.type === "remotion-2d";
+          const uses = [shared, draws2d ? guide : undefined].filter((u) => u !== undefined).map((u) => ({ name: u.name, version: u.version }));
+          const saved = await call("scene_save_spec", { spec: { ...base, uses } });
+          // The guide stands somewhere else, at another size and in another pose, in each scene.
+          const turn = Number(String(scene.label).split(".").pop()) || 1;
+          const placed = guide && draws2d
+            ? { name: guide.name, pose: guide.poses?.[turn % (guide.poses.length || 1)] ?? "stand", expression: guide.expressions?.[turn % (guide.expressions.length || 1)] ?? "calm", side: turn % 2 ? 0.14 : 0.86, size: 0.3 + 0.06 * (turn % 3) }
+            : undefined;
           const second = cues.length > 1;
           const code =
-            scene.type === "r3f" ? sceneCode3d(base.title, notes, second) : scene.type === "manim" ? sceneCodeManim(base.title, notes, second) : sceneCode(base.title, notes, second, Boolean(shared));
+            scene.type === "r3f" ? sceneCode3d(base.title, notes, second) : scene.type === "manim" ? sceneCodeManim(base.title, notes, second) : sceneCode(base.title, notes, second, Boolean(shared), placed);
           fs.writeFileSync(saved.codeFile, code);
           req.onLog("tool", `Write ${scene.type === "manim" ? "scene.py" : "scene.tsx"}`);
         }
@@ -214,9 +240,18 @@ export const Demo: React.FC = () => {
 };
 `;
 
-const sceneCode = (title: string, notes: string | undefined, second: boolean, badge: boolean) => `import React from "react";
+interface Placed {
+  name: string;
+  pose: string;
+  expression: string;
+  /** Where it stands across the frame, 0 to 1, and how tall it is as a share of the frame's height. */
+  side: number;
+  size: number;
+}
+
+const sceneCode = (title: string, notes: string | undefined, second: boolean, badge: boolean, who?: Placed) => `import React from "react";
 import { Background, useCueAppear, useTheme } from "@pipeline/lib";
-${badge ? 'import { TopicBadge } from "@shared/TopicBadge";\n' : ""}
+${badge ? 'import { TopicBadge } from "@shared/TopicBadge";\n' : ""}${who ? `import { ${who.name} } from "@shared/${who.name}";\n` : ""}
 export default function Scene() {
   const t = useTheme();
   const first = useCueAppear("first", { durationSec: 0.5 });
@@ -232,9 +267,44 @@ export default function Scene() {
           : `<div style={{ position: "absolute", left: cx - 300, top: cy - 160, width: 600, textAlign: "center", color: t.palette.text, fontFamily: t.fontFamily, fontSize: 54, fontWeight: 700, opacity: first }}>{${JSON.stringify((notes ?? title).slice(0, 36))}}</div>`
       }
       <div style={{ position: "absolute", left: cx - 300, top: cy + 60, width: 600 * second, height: 10, borderRadius: 5, background: t.palette.accent }} />
+      ${who ? `<${who.name} x={t.width * ${who.side}} y={t.safe.bottom} height={t.height * ${who.size.toFixed(2)}} pose="${who.pose}" expression="${who.expression}" facing="${who.side > 0.5 ? "left" : "right"}" progress={first} talking />` : ""}
     </>
   );
 }
+`;
+
+/** A small figure with three poses and three expressions, made the way a real character is. */
+const characterCode = (name: string, notes?: string) => `import React from "react";
+import { defineCharacter } from "@pipeline/lib";
+
+/** The video's guide.${notes ? ` Revised: ${notes.replace(/\*\//g, "")}` : ""} */
+export const ${name} = defineCharacter({
+  width: 200,
+  height: 420,
+  poses: ["stand", "point", "wave"],
+  expressions: ["calm", "happy", "surprised"],
+  colors: { skin: "#F2C6A0", hair: "#3B2A20", jacket: "primary", trousers: "#22314D" },
+  draw: ({ pose, expression, colors, blink, mouth }) => {
+    const arm = pose === "point" ? "M130 190 L196 170" : pose === "wave" ? "M130 190 L178 96" : "M130 190 L146 290";
+    return (
+      <>
+        <rect x={72} y={290} width={24} height={130} rx={10} fill={colors.trousers} />
+        <rect x={104} y={290} width={24} height={130} rx={10} fill={colors.trousers} />
+        <rect x={60} y={160} width={80} height={150} rx={26} fill={colors.jacket} />
+        <path d="M70 190 L54 290" stroke={colors.jacket} strokeWidth={22} strokeLinecap="round" />
+        <path d={arm} stroke={colors.jacket} strokeWidth={22} strokeLinecap="round" />
+        <circle cx={100} cy={96} r={58} fill={colors.skin} />
+        <path d="M44 86 Q100 0 156 86 Q100 52 44 86 Z" fill={colors.hair} />
+        {[82, 122].map((x) => (blink ? <rect key={x} x={x - 7} y={98} width={14} height={3} fill={colors.hair} /> : <circle key={x} cx={x} cy={98} r={expression === "surprised" ? 9 : 6} fill={colors.hair} />))}
+        {expression === "happy" ? (
+          <path d={\`M82 122 Q102 \${140 + mouth * 10} 122 122\`} stroke={colors.hair} strokeWidth={5} fill="none" strokeLinecap="round" />
+        ) : (
+          <ellipse cx={102} cy={128} rx={expression === "surprised" ? 9 : 12} ry={(expression === "surprised" ? 10 : 2) + mouth * 8} fill={colors.hair} />
+        )}
+      </>
+    );
+  },
+});
 `;
 
 const sceneCodeManim = (title: string, notes: string | undefined, second: boolean) => `from manim import *

@@ -66,6 +66,35 @@ function run(name: "ffmpeg" | "ffprobe", args: string[], opts: { cwd?: string; s
 export const ffmpeg = (args: string[], opts?: { cwd?: string; signal?: AbortSignal }) =>
   run("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", ...args], opts);
 
+/**
+ * Run ffmpeg and hand its output to `onData` as it arrives, instead of collecting it. For
+ * reading raw frames or samples from "pipe:1" without holding a whole video in memory.
+ */
+export function ffmpegStream(args: string[], onData: (chunk: Buffer) => void, opts: { signal?: AbortSignal } = {}): Promise<void> {
+  const { cmd, env } = binary("ffmpeg");
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, ["-hide_banner", "-loglevel", "error", "-y", ...args], { env, windowsHide: true, signal: opts.signal, stdio: ["ignore", "pipe", "pipe"] });
+    let stderr = "";
+    let failed: Error | undefined;
+    child.stdout.on("data", (chunk: Buffer) => {
+      if (failed) return;
+      try {
+        onData(chunk);
+      } catch (err) {
+        failed = err as Error;
+        child.kill();
+      }
+    });
+    child.stderr.on("data", (d) => (stderr += d));
+    child.on("error", (err) => reject(new Error(`Could not start ffmpeg: ${err.message}`)));
+    child.on("close", (code) => {
+      if (failed) reject(failed);
+      else if (code === 0) resolve();
+      else reject(new Error(`ffmpeg failed (exit code ${code}):\n${stderr.trim().split(/\r?\n/).slice(-12).join("\n")}`));
+    });
+  });
+}
+
 export interface MediaInfo {
   durationSec?: number;
   width?: number;

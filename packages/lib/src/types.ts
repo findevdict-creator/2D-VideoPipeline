@@ -18,6 +18,8 @@ export interface StyleGuide {
   palette: Palette;
   fontFamily: string;
   iconStyle: string;
+  /** Studio: "hand-drawn" gives everything a scene draws a slight wobble. Left out means "clean". */
+  look?: "clean" | "hand-drawn";
 }
 
 export interface CueTiming {

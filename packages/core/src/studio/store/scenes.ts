@@ -6,7 +6,8 @@ import { CODE_SCENE_TYPES, parseSpec, ScenePlanSchema, type ScenePlan, type Scen
 import type { Studio } from "../studio.js";
 import { getChapter, syncChapterStatus } from "./chapters.js";
 import { fromRow, fromRows } from "./mapping.js";
-import { getProject, projectPaths, type Project } from "./projects.js";
+import type { Theme } from "../model/project.js";
+import { getProject, projectPaths, updateProject, type Project } from "./projects.js";
 
 export interface Scene {
   id: string;
@@ -170,6 +171,21 @@ export function setSceneStatus(studio: Studio, sceneId: string, status: SceneSta
   studio.db.run("UPDATE scenes SET status = ?, stale_reason = ?, updated_at = ? WHERE id = ?", [status, status === "stale" || status === "failed" ? staleReason : null, nowIso(), sceneId]);
   studio.emit("scene.changed", { projectId: scene.projectId, targetId: sceneId, data: { status } });
   syncChapterStatus(studio, scene.chapterId);
+}
+
+/**
+ * Change the look every scene shares. Scenes that are already rendered were drawn with the
+ * old one, so they are marked out of date; rendering them again brings them into line.
+ * Returns the scenes marked.
+ */
+export function setTheme(studio: Studio, projectId: string, theme: Theme): string[] {
+  const before = getProject(studio, projectId).settings.theme;
+  const after = updateProject(studio, projectId, { settings: { theme } }).settings.theme;
+  if (JSON.stringify(before) === JSON.stringify(after)) return [];
+  const why = before.look !== after.look ? `The look changed to ${after.look === "hand-drawn" ? "hand-drawn" : "clean"}` : "The video's colours or font changed";
+  const drawn = listScenes(studio, projectId).filter((s) => ["rendered", "needs_review", "approved"].includes(s.status));
+  for (const scene of drawn) setSceneStatus(studio, scene.id, "stale", why);
+  return drawn.map((s) => s.id);
 }
 
 /** Change a planned scene's idea, narration or type before any work has gone into it. */

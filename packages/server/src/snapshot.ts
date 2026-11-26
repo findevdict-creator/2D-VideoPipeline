@@ -1,13 +1,14 @@
 import fs from "node:fs";
 import { listRenders } from "@studio/core/studio/assemble";
 import type { Studio } from "@studio/core/studio/studio";
-import { listAssets, listProjectReferences } from "@studio/core/studio/store/assets";
+import { referenceKeyframes } from "@studio/core/studio/assets/keyframes";
+import { findAsset, listAssets, listProjectReferences, listSceneReferences } from "@studio/core/studio/store/assets";
 import { listChapters } from "@studio/core/studio/store/chapters";
 import { listDocuments, readDocument } from "@studio/core/studio/store/documents";
 import { getProject, listProjects, projectPaths, type Project } from "@studio/core/studio/store/projects";
 import { listRuns } from "@studio/core/studio/store/runs";
 import { getScene, listReviews, listScenes, listVersions, readSource, sceneLabel, sceneNarration, versionPaths, type Scene, type SceneVersion } from "@studio/core/studio/store/scenes";
-import { listShared, listSharedRequests, readShared, sharedVersions } from "@studio/core/studio/store/shared";
+import { characterInfo, listShared, listSharedRequests, readShared, sharedVersions } from "@studio/core/studio/store/shared";
 import { getVoiceTrack } from "@studio/core/studio/voice";
 import type { ModelInfo } from "@studio/core/studio/assets/gltf";
 import { modelThumbnail } from "@studio/core/studio/renderers/modelPreview";
@@ -16,7 +17,7 @@ import { SCENE_TYPE_GUIDE } from "@studio/core/studio/tools/index";
 import type { Orchestrator } from "@studio/core/studio/workflow";
 
 /** Turns a path inside a project folder into the URL the GUI loads it from. The time stamp defeats stale caches. */
-function fileUrl(studio: Studio, project: Project, relative: string | null | undefined): string | null {
+export function fileUrl(studio: Studio, project: Project, relative: string | null | undefined): string | null {
   if (!relative) return null;
   const abs = projectPaths(studio, project).abs(relative);
   if (!fs.existsSync(abs)) return null;
@@ -63,8 +64,50 @@ export function sceneCard(studio: Studio, project: Project, scene: Scene) {
   };
 }
 
+/** The frames of a reference video worth looking at, as the GUI loads them. */
+export async function assetKeyframes(studio: Studio, assetId: string, max?: number) {
+  const asset = listAssetsById(studio, assetId);
+  const project = getProject(studio, asset.projectId);
+  const p = projectPaths(studio, project);
+  const result = await referenceKeyframes(studio, assetId, { max });
+  return {
+    durationSec: result.durationSec,
+    sheetUrl: result.sheet ? fileUrl(studio, project, p.rel(result.sheet)) : null,
+    keyframes: result.keyframes.map((k) => ({ index: k.index, atSec: k.atSec, shotStartSec: k.shotStartSec, shotEndSec: k.shotEndSec, url: fileUrl(studio, project, p.rel(k.file)) })),
+  };
+}
+
+function listAssetsById(studio: Studio, assetId: string) {
+  const row = studio.db.get<{ project_id: string }>("SELECT project_id FROM assets WHERE id = ?", [assetId]);
+  const asset = row ? findAsset(studio, row.project_id, assetId) : undefined;
+  if (!asset) throw new Error(`No asset with the id "${assetId}"`);
+  return asset;
+}
+
+/** The references attached to one scene, each with the picture the person picked. */
+async function sceneReferences(studio: Studio, project: Project, sceneId: string) {
+  const p = projectPaths(studio, project);
+  const out = [];
+  for (const ref of listSceneReferences(studio, sceneId)) {
+    const asset = findAsset(studio, project.id, ref.assetId);
+    let pictureUrl: string | null = null;
+    try {
+      if (asset?.kind === "image") pictureUrl = fileUrl(studio, project, asset.path);
+      else if (asset?.kind === "video") {
+        const frames = (await referenceKeyframes(studio, asset.id, { include: ref.atSec != null ? [ref.atSec] : [] })).keyframes;
+        const frame = frames.find((k) => k.asked) ?? frames[0];
+        if (frame) pictureUrl = fileUrl(studio, project, p.rel(frame.file));
+      }
+    } catch {
+      // A clip that cannot be read still shows as a reference, without its picture.
+    }
+    out.push({ ...ref, label: asset?.label ?? "(removed)", kind: asset?.kind ?? "other", pictureUrl });
+  }
+  return out;
+}
+
 /** Everything the scene page shows: every version, the spec, the code, and what was said in review. */
-export function sceneDetail(studio: Studio, sceneId: string) {
+export async function sceneDetail(studio: Studio, sceneId: string) {
   const scene = getScene(studio, sceneId);
   const project = getProject(studio, scene.projectId);
   const versions = listVersions(studio, scene.id);
@@ -76,6 +119,7 @@ export function sceneDetail(studio: Studio, sceneId: string) {
     versions: versions.map((v) => versionView(studio, project, v)).reverse(),
     reviews: listReviews(studio, "scene", scene.id).reverse(),
     runs: listRuns(studio, project.id, { targetId: scene.id, limit: 20 }),
+    references: await sceneReferences(studio, project, scene.id),
   };
 }
 
@@ -128,6 +172,8 @@ export function projectSnapshot(studio: Studio, orchestrator: Orchestrator, idOr
     shared: listShared(studio, project.id).map((s) => ({
       ...s,
       code: readShared(studio, project.id, s.name) ?? null,
+      /** For a character: the poses and expressions scenes can choose from. */
+      character: s.kind === "character" ? characterInfo(readShared(studio, project.id, s.name)) : null,
       versions: sharedVersions(studio, s.id).map((v) => ({ version: v.version, notes: v.notes, createdAt: v.createdAt, previewUrl: fileUrl(studio, project, v.previewPath) })),
     })),
     sharedRequests: listSharedRequests(studio, project.id, "open"),

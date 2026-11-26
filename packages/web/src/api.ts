@@ -1,8 +1,9 @@
-import type { projectList, projectSnapshot, sceneDetail } from "../../server/src/snapshot";
+import type { assetKeyframes, projectList, projectSnapshot, sceneDetail } from "../../server/src/snapshot";
 
 export type Snapshot = ReturnType<typeof projectSnapshot>;
 export type SceneCard = Snapshot["scenes"][number];
-export type SceneDetail = ReturnType<typeof sceneDetail>;
+export type SceneDetail = Awaited<ReturnType<typeof sceneDetail>>;
+export type Keyframes = Awaited<ReturnType<typeof assetKeyframes>>;
 export type ProjectSummary = ReturnType<typeof projectList>[number];
 export type Run = Snapshot["runs"][number];
 export type Asset = Snapshot["assets"][number];
@@ -30,7 +31,7 @@ export const api = {
   projects: () => request<{ workspace: string; runner: string; projects: ProjectSummary[] }>("GET", "/api/projects"),
   createProject: (input: { description: string; title?: string; targetDurationSec: number; aspect: string }) => request<{ slug: string }>("POST", "/api/projects", input),
   project: (slug: string) => request<Snapshot>("GET", `/api/projects/${encodeURIComponent(slug)}`),
-  updateSettings: (slug: string, settings: { sceneTypes?: string[] }) => request("PATCH", `/api/projects/${encodeURIComponent(slug)}`, { settings }),
+  updateSettings: (slug: string, settings: { sceneTypes?: string[]; captions?: boolean; theme?: { look?: string }; music?: Record<string, unknown>; sfx?: Record<string, unknown> }) => request("PATCH", `/api/projects/${encodeURIComponent(slug)}`, { settings }),
   startStage: (slug: string, notes?: string) => request("POST", `/api/projects/${encodeURIComponent(slug)}/stage/start`, { notes }),
   approveStage: (slug: string) => request<{ stage: Stage }>("POST", `/api/projects/${encodeURIComponent(slug)}/stage/approve`, {}),
   assemble: (slug: string, quality: "preview" | "final") => request("POST", `/api/projects/${encodeURIComponent(slug)}/assemble`, { quality }),
@@ -50,6 +51,8 @@ export const api = {
   closeSharedRequest: (id: string, status: "done" | "declined") => request("POST", `/api/shared-requests/${id}/close`, { status }),
   upload: (slug: string, file: File) => request<{ id: string }>("POST", `/api/projects/${encodeURIComponent(slug)}/assets`, file, { "x-file-name": encodeURIComponent(file.name), "content-type": "application/octet-stream" }),
   editAsset: (id: string, patch: { label?: string; reference?: { role: string | null; note?: string } }) => request("PATCH", `/api/assets/${id}`, patch),
+  keyframes: (id: string) => request<Keyframes>("GET", `/api/assets/${id}/keyframes`),
+  setSceneReference: (sceneId: string, ref: { assetId: string; role: string | null; note?: string; atSec?: number | null }) => request("PUT", `/api/scenes/${sceneId}/references`, ref),
   deleteAsset: (id: string) => request("DELETE", `/api/assets/${id}`),
   runLog: (id: string, after: number) => request<{ status: string; error: string | null; lines: LogLine[]; next: number }>("GET", `/api/runs/${id}/log?after=${after}`),
   cancelRun: (id: string) => request("POST", `/api/runs/${id}/cancel`, {}),
