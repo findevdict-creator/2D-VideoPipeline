@@ -4,6 +4,7 @@ import path from "node:path";
 import { newId, nowIso } from "../ids.js";
 import { guessAsset, type AssetKind } from "../model/asset.js";
 import { probe } from "../media/ffmpeg.js";
+import { imageSize } from "../media/imageSize.js";
 import type { Studio } from "../studio.js";
 import { fromRow, fromRows } from "./mapping.js";
 import { getProject, projectPaths } from "./projects.js";
@@ -76,6 +77,10 @@ export async function importAsset(studio: Studio, projectId: string, file: strin
     } catch {
       // An unreadable file is still stored; rendering will report it if it is used.
     }
+  }
+  if (kind === "image" && !info?.width) {
+    const size = imageSize(target);
+    if (size) info = { hasVideo: true, hasAudio: false, ...size };
   }
   // Long audio is more likely music than a sound effect.
   if (!opts.kind && kind === "audio_sfx" && (info?.durationSec ?? 0) > 30) kind = "audio_music";

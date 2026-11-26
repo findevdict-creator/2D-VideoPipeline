@@ -6,6 +6,8 @@ import { listChapters } from "@studio/core/studio/store/chapters";
 import { getProject, listProjects } from "@studio/core/studio/store/projects";
 import { findScene, listScenes, sceneLabel } from "@studio/core/studio/store/scenes";
 import { ensureVoice } from "@studio/core/studio/voice";
+import { REFERENCE_ROLES } from "@studio/core/studio/model/asset";
+import { importAsset, listAssets, listProjectReferences, setProjectReference } from "@studio/core/studio/store/assets";
 import { assemble } from "@studio/core/studio/assemble";
 import { checkScene, renderSceneClip, renderSceneStills } from "@studio/core/studio/scenes/render";
 
@@ -15,6 +17,8 @@ Usage:
   npm run studio -- projects                         list projects in the workspace
   npm run studio -- import <production-folder>       bring a pipeline production in as a project
   npm run studio -- scenes <project>                 list a project's scenes and their status
+  npm run studio -- assets <project>                 list a project's images, clips, sounds and models
+  npm run studio -- asset add <project> <file...>    add files to a project (--label, --reference style|layout|motion)
   npm run studio -- check <project> <scene>          report what would stop a scene from rendering
   npm run studio -- stills <project> <scene>         render still frames of a scene for a quick look
   npm run studio -- render <project> [scene...]      render scene clips (all scenes when none is named)
@@ -28,6 +32,9 @@ Options:
   --model <name>                         model for every agent
   --final                                render or assemble at full quality (default: fast preview)
   --chapter <number>                     assemble one chapter only
+  --label <text>                         name for an added asset
+  --reference <style|layout|motion>      also mark an added asset as a reference for the whole video
+  --note <text>                          what to take from the reference
   -h, --help
 `;
 
@@ -40,6 +47,9 @@ async function main() {
       model: { type: "string" },
       final: { type: "boolean", default: false },
       chapter: { type: "string" },
+      label: { type: "string" },
+      reference: { type: "string" },
+      note: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -51,13 +61,13 @@ async function main() {
   const config = loadConfig({ runner: values.runner as RunnerKind | undefined, model: values.model });
   const studio = new Studio(config, values.workspace);
   try {
-    await run(studio, command, rest, { final: values.final, chapter: values.chapter });
+    await run(studio, command, rest, { final: values.final, chapter: values.chapter, label: values.label, reference: values.reference, note: values.note });
   } finally {
     studio.close();
   }
 }
 
-async function run(studio: Studio, command: string, rest: string[], flags: { final: boolean; chapter?: string }) {
+async function run(studio: Studio, command: string, rest: string[], flags: { final: boolean; chapter?: string; label?: string; reference?: string; note?: string }) {
   const log = (message: string) => console.log(message);
   const quality = flags.final ? "final" : "preview";
   if (command === "projects") {
@@ -82,6 +92,32 @@ async function run(studio: Studio, command: string, rest: string[], flags: { fin
       for (const s of listScenes(studio, project.id, chapter.id)) {
         console.log(`  ${sceneLabel(studio, s).padEnd(6)} ${s.type.padEnd(13)} ${s.status.padEnd(14)} ${s.title}  (${s.id})`);
       }
+    }
+    return;
+  }
+  if (command === "assets") {
+    const project = getProject(studio, required(rest[0], "project"));
+    const refs = new Map(listProjectReferences(studio, project.id).map((r) => [r.assetId, r.role]));
+    const all = listAssets(studio, project.id);
+    if (!all.length) console.log("No assets yet.");
+    for (const a of all) {
+      const size = a.width ? `${a.width}x${a.height}` : "";
+      const length = a.durationSec ? `${a.durationSec.toFixed(1)}s` : "";
+      const ref = refs.has(a.id) ? `${refs.get(a.id)} reference` : "";
+      console.log(`${a.id}  ${a.kind.padEnd(11)} ${[size, length].filter(Boolean).join(" ").padEnd(16)} ${a.label}  ${ref}`);
+    }
+    return;
+  }
+  if (command === "asset" && rest[0] === "add") {
+    const project = getProject(studio, required(rest[1], "project"));
+    const files = rest.slice(2);
+    if (!files.length) throw new Error("Name at least one file to add.");
+    const role = flags.reference;
+    if (role && !(REFERENCE_ROLES as readonly string[]).includes(role)) throw new Error(`--reference must be one of: ${REFERENCE_ROLES.join(", ")}`);
+    for (const file of files) {
+      const asset = await importAsset(studio, project.id, file, { label: files.length === 1 ? flags.label : undefined });
+      if (role) setProjectReference(studio, project.id, { assetId: asset.id, role: role as (typeof REFERENCE_ROLES)[number], note: flags.note ?? "" });
+      console.log(`${asset.id}  ${asset.kind}  ${asset.label}${role ? `  (${role} reference)` : ""}`);
     }
     return;
   }
