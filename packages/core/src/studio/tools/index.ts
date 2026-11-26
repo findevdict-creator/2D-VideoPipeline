@@ -12,6 +12,7 @@ import { availableSceneTypes } from "../renderers/registry.js";
 import { renderSharedPreview, typecheckScene } from "../renderers/remotion.js";
 import { checkScene, renderSceneStills } from "../scenes/render.js";
 import { checkSpecAssets } from "../scenes/validate.js";
+import type { ModelInfo } from "../assets/gltf.js";
 import { listAssets, listProjectReferences } from "../store/assets.js";
 import { getChapter, listChapters, proposeChapters } from "../store/chapters.js";
 import { latestDocument, listDocuments, readDocument, saveDocument } from "../store/documents.js";
@@ -44,6 +45,18 @@ export const SCENE_TYPE_GUIDE: Record<SceneType, string> = {
   illustration: "One or more of the project's images with a slow camera move, labels and arrows on top. Needs an image asset.",
   footage: "A video clip from the project's assets, fitted to the narration, with labels on top. Needs a video asset.",
 };
+
+/** What a scene builder needs to know to use a 3D model: its parts by name, its animations, and its size. */
+function modelSummary(model: ModelInfo) {
+  return {
+    howToUse: 'In an r3f scene: list the asset id under "assets" in the spec, then <Model asset="<id>" fit={4} />. Move, hide or recolour parts by name with its "parts" prop; show an animation at a time in seconds with its "animations" prop.',
+    sizeInItsOwnUnits: model.size,
+    parts: model.parts.map((p) => ({ name: p.name, inside: p.parent, position: p.position })),
+    animations: model.animations.map((a) => ({ name: a.name, durationSec: a.durationSec, moves: a.parts })),
+    triangles: model.triangles,
+    warnings: model.warnings,
+  };
+}
 
 function scopeOf(ctx: ToolContext, writers: RunKind[]) {
   if (!ctx.run) throw new ToolRefusal("This tool changes the project, and this session is not part of a run. Only reading is allowed here.");
@@ -198,13 +211,14 @@ const tools: ToolDef<any>[] = [
           durationSec: a.durationSec,
           note: a.sourceNote,
           reference: refs.get(a.id) ? { role: refs.get(a.id)!.role, note: refs.get(a.id)!.note } : null,
+          ...(a.meta.model ? { model: modelSummary(a.meta.model as ModelInfo) } : {}),
         })),
       };
     },
   }),
   defineTool({
     name: "asset_view",
-    description: "Look at an image, or at evenly spaced frames of a video clip. Use it on references and on any asset before you put it in a scene.",
+    description: "Look at an image, at evenly spaced frames of a video clip, or at a 3D model from four sides and at the end of each of its animations. Use it on references and on any asset before you put it in a scene.",
     input: z.object({ assetId: z.string(), frames: z.number().int().min(1).max(12).default(4).describe("For video: how many frames to show") }),
     handler: async (ctx, { assetId, frames }) => {
       const asset = listAssets(ctx.studio, ctx.projectId).find((a) => a.id === assetId);
@@ -216,7 +230,8 @@ const tools: ToolDef<any>[] = [
         width: asset.width,
         height: asset.height,
         durationSec: asset.durationSec,
-        images: previews.map((p) => ({ file: p.file, caption: p.atSec !== undefined ? `${asset.label} at ${p.atSec}s` : asset.label })),
+        ...(asset.meta.model ? { model: modelSummary(asset.meta.model as ModelInfo) } : {}),
+        images: previews.map((p) => ({ file: p.file, caption: p.caption ?? (p.atSec !== undefined ? `${asset.label} at ${p.atSec}s` : asset.label) })),
       };
     },
   }),

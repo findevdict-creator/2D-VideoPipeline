@@ -9,6 +9,7 @@ export function registerRenderer(renderer: Renderer) {
 }
 
 registerRenderer(new RemotionCodeRenderer("remotion-2d"));
+registerRenderer(new RemotionCodeRenderer("r3f"));
 registerRenderer(new RemotionTemplateRenderer("illustration"));
 registerRenderer(new RemotionTemplateRenderer("footage"));
 

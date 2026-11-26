@@ -9,6 +9,8 @@ import { listRuns } from "@studio/core/studio/store/runs";
 import { getScene, listReviews, listScenes, listVersions, readSource, sceneLabel, sceneNarration, versionPaths, type Scene, type SceneVersion } from "@studio/core/studio/store/scenes";
 import { listShared, listSharedRequests, readShared, sharedVersions } from "@studio/core/studio/store/shared";
 import { getVoiceTrack } from "@studio/core/studio/voice";
+import type { ModelInfo } from "@studio/core/studio/assets/gltf";
+import { modelThumbnail } from "@studio/core/studio/renderers/modelPreview";
 import { availableSceneTypes } from "@studio/core/studio/renderers/registry";
 import { SCENE_TYPE_GUIDE } from "@studio/core/studio/tools/index";
 import type { Orchestrator } from "@studio/core/studio/workflow";
@@ -116,7 +118,17 @@ export function projectSnapshot(studio: Studio, orchestrator: Orchestrator, idOr
       versions: sharedVersions(studio, s.id).map((v) => ({ version: v.version, notes: v.notes, createdAt: v.createdAt, previewUrl: fileUrl(studio, project, v.previewPath) })),
     })),
     sharedRequests: listSharedRequests(studio, project.id, "open"),
-    assets: listAssets(studio, project.id).map((a) => ({ ...a, url: fileUrl(studio, project, a.path), reference: refs.get(a.id) ?? null })),
+    assets: listAssets(studio, project.id).map((a) => {
+      const thumb = a.kind === "model" ? modelThumbnail(studio, project, a) : null;
+      return {
+        ...a,
+        url: fileUrl(studio, project, a.path),
+        /** A picture of a 3D model, once it has been drawn. */
+        previewUrl: thumb ? fileUrl(studio, project, projectPaths(studio, project).rel(thumb)) : null,
+        model: (a.meta.model as ModelInfo | undefined) ?? null,
+        reference: refs.get(a.id) ?? null,
+      };
+    }),
     runs: listRuns(studio, project.id, { limit: 60 }),
     jobs: studio.db.all("SELECT id, kind, target_id AS targetId, status, progress, error, queued_at AS queuedAt FROM jobs WHERE project_id = ? ORDER BY queued_at DESC, id DESC LIMIT 30", [project.id]),
     renders: listRenders(studio, project.id).map((r) => ({ ...r, url: fileUrl(studio, project, r.path), srtUrl: fileUrl(studio, project, r.srtPath) })),

@@ -150,7 +150,7 @@ test("checking a scene reports code problems before anything is rendered", async
 
 test("scene types without a renderer yet are not offered", () => {
   const types = availableSceneTypes();
-  assert.deepEqual(types.sort(), ["footage", "illustration", "remotion-2d"]);
+  assert.deepEqual(types.sort(), ["footage", "illustration", "r3f", "remotion-2d"]);
 });
 
 test("final assembly refuses scenes you have not approved", async () => {

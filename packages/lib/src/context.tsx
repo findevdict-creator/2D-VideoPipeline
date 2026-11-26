@@ -1,5 +1,5 @@
 import React, { createContext, useContext } from "react";
-import type { CueTiming, Palette, SceneData, VideoData } from "./types";
+import type { AssetData, CueTiming, Palette, SceneData, VideoData } from "./types";
 
 const VideoContext = createContext<VideoData | null>(null);
 const SceneContext = createContext<SceneData | null>(null);
@@ -61,4 +61,20 @@ export function useCueFrame(elementId: string, which = 0): number {
     );
   }
   return cue.startFrame;
+}
+
+/**
+ * One of the project's files, by its asset id, with the URL to load it from.
+ * The scene's spec must list the id under "assets".
+ */
+export function useAsset(assetId: string): AssetData & { url: string } {
+  const scene = useScene();
+  const { assetBase } = useVideoData();
+  const asset = scene.assets?.[assetId];
+  if (!asset) {
+    const listed = Object.keys(scene.assets ?? {}).join(", ") || "none";
+    throw new Error(`Asset "${assetId}" is not listed under "assets" in this scene's spec. Listed: ${listed}. Add its id to the spec with scene_save_spec.`);
+  }
+  const url = /^(https?:|data:|blob:)/.test(asset.src) || !assetBase ? asset.src : `${assetBase.replace(/\/$/, "")}/${asset.src.replace(/^\//, "")}`;
+  return { ...asset, url };
 }

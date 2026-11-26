@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { ffmpeg } from "../media/ffmpeg.js";
 import type { Studio } from "../studio.js";
+import { modelPictures } from "../renderers/modelPreview.js";
 import { getAsset } from "../store/assets.js";
 import { getProject, projectPaths } from "../store/projects.js";
 
@@ -10,11 +11,13 @@ export interface PreviewImage {
   file: string;
   /** For video: the moment this frame was taken at. */
   atSec?: number;
+  /** What the picture shows, when the file name does not say. */
+  caption?: string;
 }
 
 /**
- * Pictures of an asset for an agent to look at: an image scaled down if it is large, or a
- * handful of evenly spaced frames of a video. Made once and kept in the project's work folder.
+ * Pictures of an asset for an agent to look at: an image scaled down if it is large, a
+ * handful of evenly spaced frames of a video, or a 3D model from four sides. Made once and kept in the project's work folder.
  */
 export async function assetPreview(studio: Studio, assetId: string, opts: { frames?: number; maxSide?: number } = {}): Promise<PreviewImage[]> {
   const asset = getAsset(studio, assetId);
@@ -51,5 +54,6 @@ export async function assetPreview(studio: Studio, assetId: string, opts: { fram
     }
     return out;
   }
+  if (asset.kind === "model") return modelPictures(studio, getProject(studio, asset.projectId), asset);
   throw new Error(`Asset "${asset.label}" is ${asset.kind}, which has no picture to show.`);
 }

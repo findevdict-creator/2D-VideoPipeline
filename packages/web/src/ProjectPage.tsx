@@ -394,10 +394,11 @@ function AssetsTab({ snap, slug }: { snap: Snapshot; slug: string }) {
         }}
       >
         <p>
-          <strong>Drop images, video clips or sounds here</strong>
+          <strong>Drop images, video clips, sounds or 3D models here</strong>
         </p>
         <p className="muted">
-          Use them in image and video-clip scenes, or mark one as a reference to show Claude a style, a layout or a kind of motion. A reference is a direction, not something to copy.
+          Use them in image and video-clip scenes, or mark one as a reference to show Claude a style, a layout or a kind of motion. A reference is a direction, not something to copy. A model made in Blender
+          goes in as a .glb file, and 3D scenes can move its named parts and play its animations.
         </p>
         <button className="btn" disabled={busy} onClick={() => input.current?.click()}>
           {busy ? "Adding…" : "Choose files"}
@@ -426,13 +427,34 @@ function AssetCard({ asset }: { asset: Asset }) {
         <video className="thumb" src={asset.url} controls preload="metadata" />
       ) : asset.kind.startsWith("audio") && asset.url ? (
         <audio className="audio" src={asset.url} controls preload="none" />
+      ) : asset.kind === "model" && asset.previewUrl ? (
+        <img className="thumb thumb-model" src={asset.previewUrl} alt={asset.label} loading="lazy" />
       ) : (
-        <div className="thumb thumb-empty">{asset.kind}</div>
+        <div className="thumb thumb-empty">{asset.kind === "model" ? "3D model" : asset.kind}</div>
       )}
       <strong>{asset.label}</strong>
       <span className="muted small">
-        {asset.kind.replace("audio_", "")} {asset.width ? `· ${asset.width}×${asset.height}` : ""} {asset.durationSec ? `· ${duration(asset.durationSec)}` : ""}
+        {asset.kind === "model" ? "3D model" : asset.kind.replace("audio_", "")} {asset.width ? `· ${asset.width}×${asset.height}` : ""} {asset.durationSec ? `· ${duration(asset.durationSec)}` : ""}
+        {asset.model ? `· ${asset.model.parts.length} parts · ${asset.model.triangles.toLocaleString()} triangles` : ""}
       </span>
+      {asset.model && (
+        <>
+          <details className="small">
+            <summary>Parts and animations</summary>
+            <p>
+              <span className="muted">Parts Claude can move, hide or recolour:</span> {asset.model.parts.map((p) => p.name).join(", ") || "none with a name"}
+            </p>
+            <p>
+              <span className="muted">Animations:</span> {asset.model.animations.map((a) => `${a.name} (${a.durationSec} s)`).join(", ") || "none"}
+            </p>
+          </details>
+          {asset.model.warnings.map((w) => (
+            <p key={w} className="notice small">
+              {w}
+            </p>
+          ))}
+        </>
+      )}
       {canBeReference && (
         <label className="small">
           Use as a reference for

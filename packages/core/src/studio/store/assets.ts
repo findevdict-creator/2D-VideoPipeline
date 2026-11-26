@@ -4,6 +4,7 @@ import path from "node:path";
 import { newId, nowIso } from "../ids.js";
 import { guessAsset, type AssetKind } from "../model/asset.js";
 import { probe } from "../media/ffmpeg.js";
+import { inspectModel, type ModelInfo } from "../assets/gltf.js";
 import { imageSize } from "../media/imageSize.js";
 import type { Studio } from "../studio.js";
 import { fromRow, fromRows } from "./mapping.js";
@@ -65,6 +66,12 @@ export async function importAsset(studio: Studio, projectId: string, file: strin
 
   const guess = guessAsset(name);
   const ext = path.extname(name).toLowerCase();
+  // A model is read before it is stored: one that cannot load is refused with the reason, not kept.
+  let model: ModelInfo | undefined;
+  if ((opts.kind ?? guess.kind) === "model") {
+    model = inspectModel(file, { triangleBudget: studio.config.studio.modelTriangleBudget });
+    if (model.errors.length) throw new Error(`"${name}" cannot be used as it is:\n  - ${model.errors.join("\n  - ")}`);
+  }
   const target = path.join(p.assets, `${sha256.slice(0, 24)}${ext}`);
   fs.mkdirSync(p.assets, { recursive: true });
   fs.copyFileSync(file, target);
@@ -100,7 +107,7 @@ export async function importAsset(studio: Studio, projectId: string, file: strin
       w: info?.width ?? null,
       h: info?.height ?? null,
       dur: kind === "image" ? null : (info?.durationSec ?? null),
-      meta: JSON.stringify(info ? { fps: info.fps, hasAudio: info.hasAudio, codec: info.codec } : {}),
+      meta: JSON.stringify(model ? { model } : info ? { fps: info.fps, hasAudio: info.hasAudio, codec: info.codec } : {}),
       label: opts.label ?? name.replace(/\.[^.]+$/, ""),
       note: opts.sourceNote ?? "",
       stamp: nowIso(),

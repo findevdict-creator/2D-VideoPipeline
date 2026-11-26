@@ -65,6 +65,26 @@ export interface SceneData {
   overlays?: OverlayData[];
   illustration?: IllustrationData;
   footage?: FootageData;
+  /** Studio code scenes: the project files the scene's spec lists under "assets", by asset id. */
+  assets?: Record<string, AssetData>;
+}
+
+/** A project file a code scene loads: an image, a clip or a 3D model. */
+export interface AssetData {
+  /** File URL, or a path relative to VideoData.assetBase. */
+  src: string;
+  kind: string;
+  label: string;
+  width: number | null;
+  height: number | null;
+  durationSec: number | null;
+  /** For 3D models: what the file holds, in the model's own units. */
+  model?: {
+    size: [number, number, number];
+    center: [number, number, number];
+    parts: string[];
+    animations: { name: string; durationSec: number }[];
+  };
 }
 
 interface OverlayTiming {

@@ -81,6 +81,10 @@ const base = {
     .default([]),
   uses: z.array(z.object({ name: z.string(), version: z.number().int().positive() })).default([]).describe("Shared assets this scene is built on"),
   overlays: z.array(OverlaySchema).default([]),
+  assets: z
+    .array(z.string())
+    .default([])
+    .describe("Ids of project files the scene's code loads: 3D models for <Model>, images for textures. Illustration and footage scenes name their files in their own fields instead"),
 };
 
 /** A point of interest in an image and how far the camera is zoomed in on it. */

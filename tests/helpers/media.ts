@@ -94,3 +94,20 @@ export function quarterOf([r, g, b]: [number, number, number]): "red" | "green" 
   if (near([220, 180, 50])) return "yellow";
   return "other";
 }
+
+/** Every pixel of an image or of one frame of a video, as RGB triples in a flat buffer. */
+export async function rawPixels(ffmpeg: (args: string[]) => Promise<unknown>, file: string, sec?: number): Promise<Buffer> {
+  const out = `${file}.${Math.round((sec ?? 0) * 1000)}.all.rgb`;
+  await ffmpeg(["-y", ...(sec !== undefined ? ["-ss", sec.toFixed(3)] : []), "-i", file, "-frames:v", "1", "-c:v", "rawvideo", "-pix_fmt", "rgb24", "-f", "image2", out]);
+  const raw = fs.readFileSync(out);
+  fs.rmSync(out);
+  return raw;
+}
+
+/** How many pixels of a picture pass a test, as a fraction of the picture. */
+export async function shareOfPixels(ffmpeg: (args: string[]) => Promise<unknown>, file: string, test: (r: number, g: number, b: number) => boolean, sec?: number): Promise<number> {
+  const raw = await rawPixels(ffmpeg, file, sec);
+  let hits = 0;
+  for (let i = 0; i + 2 < raw.length; i += 3) if (test(raw[i]!, raw[i + 1]!, raw[i + 2]!)) hits++;
+  return hits / (raw.length / 3);
+}

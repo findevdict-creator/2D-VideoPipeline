@@ -4,31 +4,39 @@ import fs from "node:fs";
 import path from "node:path";
 import { bundle, type WebpackOverrideFn } from "@remotion/bundler";
 import { renderMedia, renderStill, selectComposition } from "@remotion/renderer";
-import { LIB_DIR, LIB_INDEX, LIB_TSCONFIG, REPO_ROOT } from "../../paths.js";
+import { LIB_DIR, LIB_INDEX, LIB_THREE, LIB_TSCONFIG, REPO_ROOT } from "../../paths.js";
 import { checkSceneSource } from "../../render/sceneCheck.js";
 import type { VideoData } from "@pipeline/lib/types";
 import { projectPaths, type Project } from "../store/projects.js";
 import type { SceneType } from "../model/scene.js";
 import type { Studio } from "../studio.js";
+import { checkThreeSource } from "./threeCheck.js";
 import type { ClipResult, QualitySettings, RenderContext, Renderer } from "./types.js";
 
 const sha = (text: string) => createHash("sha1").update(text).digest("hex").slice(0, 16);
 
-let libHashCache: string | undefined;
+const libHashCache = new Map<boolean, string>();
 
-/** A hash of the Remotion library's source. Clips are re-rendered when the library changes. */
-export function libHash(): string {
-  if (libHashCache) return libHashCache;
+/**
+ * A hash of the Remotion library's source. Clips are re-rendered when the library changes.
+ * The 3D half counts only for 3D scenes, so changing it leaves 2D clips alone.
+ */
+export function libHash(withThree = false): string {
+  const cached = libHashCache.get(withThree);
+  if (cached) return cached;
   const hash = createHash("sha1");
   const walk = (dir: string) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
       const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) walk(full);
-      else if (/\.(tsx?|json)$/.test(entry.name)) hash.update(entry.name).update(fs.readFileSync(full));
+      if (entry.isDirectory()) {
+        if (withThree || full !== path.dirname(LIB_THREE)) walk(full);
+      } else if (/\.(tsx?|json)$/.test(entry.name)) hash.update(entry.name).update(fs.readFileSync(full));
     }
   };
   walk(path.join(LIB_DIR, "src"));
-  return (libHashCache = hash.digest("hex").slice(0, 16));
+  const value = hash.digest("hex").slice(0, 16);
+  libHashCache.set(withThree, value);
+  return value;
 }
 
 const IMPORT = /(?:from|import)\s*["']([^"']+)["']/g;
@@ -66,7 +74,9 @@ function webpackOverride(sharedDir: string): WebpackOverrideFn {
       ...config.resolve,
       alias: {
         ...((config.resolve?.alias as Record<string, string> | undefined) ?? {}),
-        "@pipeline/lib": LIB_INDEX,
+        // "$" makes each an exact match, so "@pipeline/lib/three" is not read as a path under the index file.
+        "@pipeline/lib/three$": LIB_THREE,
+        "@pipeline/lib$": LIB_INDEX,
         "@shared": sharedDir,
       },
       modules: [path.join(REPO_ROOT, "node_modules"), "node_modules", ...(config.resolve?.modules ?? [])],
@@ -74,14 +84,14 @@ function webpackOverride(sharedDir: string): WebpackOverrideFn {
   });
 }
 
-const browser = (studio: Studio) => studio.config.render.browserExecutable || null;
+export const browser = (studio: Studio) => studio.config.render.browserExecutable || null;
 const importPath = (file: string) => JSON.stringify(file.split(path.sep).join("/"));
 
 /**
  * Bundle an entry file, reusing the last bundle in `outDir` when its key matches.
  * Bundling is the slow part of a still, so this matters when an agent asks for frames twice.
  */
-async function bundleOnce(key: string, outDir: string, entrySource: string, sharedDir: string): Promise<string> {
+export async function bundleOnce(key: string, outDir: string, entrySource: string, sharedDir: string): Promise<string> {
   const marker = path.join(outDir, "bundle.key");
   if (fs.existsSync(marker) && fs.readFileSync(marker, "utf8") === key && fs.existsSync(path.join(outDir, "index.html"))) return outDir;
   fs.rmSync(outDir, { recursive: true, force: true });
@@ -94,23 +104,64 @@ async function bundleOnce(key: string, outDir: string, entrySource: string, shar
   return outDir;
 }
 
-async function renderStills(ctx: RenderContext, serveUrl: string, frames: number[], outDir: string, scale: number): Promise<string[]> {
+type Gl = NonNullable<Studio["config"]["render"]["gl"]>;
+type ChromiumOptions = { gl?: Gl };
+
+/** The backend that last drew a 3D frame in this process, so the next render starts with it. */
+let glThatWorks: Gl | undefined;
+
+/**
+ * Run a render with a way of drawing 3D that works on this machine. 2D scenes need
+ * nothing special. For 3D, the setting wins; without one, try the graphics card first
+ * and software drawing second, and remember which one worked.
+ */
+export async function withGl<T>(studio: Studio, three: boolean, log: (m: string) => void, job: (chromiumOptions: ChromiumOptions) => Promise<T>): Promise<T> {
+  if (!three) return job({});
+  const set = studio.config.render.gl;
+  const choices: Gl[] = set ? [set] : glThatWorks ? [glThatWorks] : ["angle", "swangle"];
+  let lastError: unknown;
+  for (const gl of choices) {
+    try {
+      const result = await job({ gl });
+      glThatWorks = gl;
+      return result;
+    } catch (err) {
+      lastError = err;
+      const message = err instanceof Error ? err.message : String(err);
+      if (!/webgl|web gl|gl context|ThreeCanvas/i.test(message) || gl === choices.at(-1)) break;
+      log(`Drawing 3D with "${gl}" did not work on this machine; trying "${choices[choices.indexOf(gl) + 1]}".`);
+    }
+  }
+  const message = lastError instanceof Error ? lastError.message : String(lastError);
+  if (/webgl|web gl|gl context/i.test(message)) {
+    throw new Error(`Chrome could not start 3D drawing (WebGL) on this machine. Set render.gl to "swangle" in pipeline.config.json to draw in software.\n${message.split("\n")[0]}`);
+  }
+  throw lastError;
+}
+
+async function renderStills(ctx: RenderContext, serveUrl: string, frames: number[], outDir: string, scale: number, three = false): Promise<string[]> {
   fs.mkdirSync(outDir, { recursive: true });
   for (const old of fs.readdirSync(outDir)) if (old.endsWith(".png")) fs.rmSync(path.join(outDir, old), { force: true });
   const inputProps = { data: ctx.data };
-  const composition = await selectComposition({ serveUrl, id: "Scene", inputProps, browserExecutable: browser(ctx.studio), logLevel: "error" });
-  const files: string[] = [];
-  for (const frame of frames) {
-    const output = path.join(outDir, `f${String(frame).padStart(5, "0")}.png`);
-    await renderStill({ composition, serveUrl, inputProps, frame, output, scale, browserExecutable: browser(ctx.studio), logLevel: "error" });
-    files.push(output);
-  }
-  return files;
+  return withGl(ctx.studio, three, ctx.log, async (chromiumOptions) => {
+    const composition = await selectComposition({ serveUrl, id: "Scene", inputProps, browserExecutable: browser(ctx.studio), chromiumOptions, logLevel: "error" });
+    const files: string[] = [];
+    for (const frame of frames) {
+      const output = path.join(outDir, `f${String(frame).padStart(5, "0")}.png`);
+      await renderStill({ composition, serveUrl, inputProps, frame, output, scale, browserExecutable: browser(ctx.studio), chromiumOptions, logLevel: "error" });
+      files.push(output);
+    }
+    return files;
+  });
 }
 
-async function renderClip(ctx: RenderContext, serveUrl: string, q: QualitySettings, output: string, onProgress: (p: number) => void): Promise<ClipResult> {
+async function renderClip(ctx: RenderContext, serveUrl: string, q: QualitySettings, output: string, onProgress: (p: number) => void, three = false): Promise<ClipResult> {
+  return withGl(ctx.studio, three, ctx.log, (chromiumOptions) => renderClipWith(ctx, serveUrl, q, output, onProgress, chromiumOptions));
+}
+
+async function renderClipWith(ctx: RenderContext, serveUrl: string, q: QualitySettings, output: string, onProgress: (p: number) => void, chromiumOptions: ChromiumOptions): Promise<ClipResult> {
   const inputProps = { data: ctx.data };
-  const composition = await selectComposition({ serveUrl, id: "Scene", inputProps, browserExecutable: browser(ctx.studio), logLevel: "error" });
+  const composition = await selectComposition({ serveUrl, id: "Scene", inputProps, browserExecutable: browser(ctx.studio), chromiumOptions, logLevel: "error" });
   fs.mkdirSync(path.dirname(output), { recursive: true });
   const partial = `${output}.part.mp4`;
   await renderMedia({
@@ -126,6 +177,7 @@ async function renderClip(ctx: RenderContext, serveUrl: string, q: QualitySettin
     scale: q.scale,
     concurrency: ctx.studio.config.render.concurrency,
     browserExecutable: browser(ctx.studio),
+    chromiumOptions,
     logLevel: "error",
     onProgress: ({ progress }) => onProgress(progress),
   });
@@ -210,6 +262,7 @@ export async function typecheckScene(sourceFile: string, workDir: string, shared
           // Projects live outside the repo, so point module lookups at the repo's packages.
           paths: {
             "@pipeline/lib": [LIB_INDEX],
+            "@pipeline/lib/three": [LIB_THREE],
             "@shared/*": [path.join(sharedDir, "*")],
             "*": [path.join(REPO_ROOT, "node_modules", "@types", "*"), path.join(REPO_ROOT, "node_modules", "*")],
           },
@@ -243,12 +296,17 @@ export async function typecheckScene(sourceFile: string, workDir: string, shared
 /** Imports a code scene may use. Shared components come from the project's shared folder. */
 export const SCENE_IMPORTS: Partial<Record<SceneType, string[]>> = {
   "remotion-2d": ["@pipeline/lib", "remotion", "react"],
+  r3f: ["@pipeline/lib", "@pipeline/lib/three", "remotion", "react", "three", "@react-three/fiber", "@react-three/drei"],
 };
 
-/** A scene written as a Remotion component in scene.tsx. */
+/** A scene written as a React component in scene.tsx: 2D with Remotion, or 3D with react-three-fiber inside it. */
 export class RemotionCodeRenderer implements Renderer {
   readonly revision = "1";
   constructor(readonly type: SceneType = "remotion-2d") {}
+
+  private get three() {
+    return this.type === "r3f";
+  }
 
   private sharedDir(ctx: RenderContext) {
     return projectPaths(ctx.studio, ctx.project).sharedComponents;
@@ -262,6 +320,7 @@ export class RemotionCodeRenderer implements Renderer {
     const code = this.source(ctx);
     if (code === undefined) return [`The scene's code file does not exist yet. Write it to ${ctx.sourceFile}`];
     const problems = checkSceneSource(code, { allowed: SCENE_IMPORTS[this.type], allowedPrefixes: ["@shared/"] });
+    if (this.three) problems.push(...checkThreeSource(code));
     if (problems.length) return problems;
     return typecheckScene(ctx.sourceFile!, path.join(ctx.workDir, "check"), this.sharedDir(ctx));
   }
@@ -270,7 +329,7 @@ export class RemotionCodeRenderer implements Renderer {
     const code = this.source(ctx);
     if (code === undefined) throw new Error(`The scene's code file does not exist: ${ctx.sourceFile}`);
     const shared = this.sharedDir(ctx);
-    const key = sha(JSON.stringify([code, libHash(), sharedHash(code, shared), this.revision]));
+    const key = sha(JSON.stringify([code, libHash(this.three), sharedHash(code, shared), this.revision]));
     const entry = `// Generated by the studio. Do not edit.
 import { registerRoot } from "remotion";
 import { makeSceneRoot } from "@pipeline/lib";
@@ -282,16 +341,16 @@ registerRoot(makeSceneRoot(Scene));
   }
 
   async stills(ctx: RenderContext, frames: number[], outDir: string, scale: number) {
-    return renderStills(ctx, await this.bundle(ctx), frames, outDir, scale);
+    return renderStills(ctx, await this.bundle(ctx), frames, outDir, scale, this.three);
   }
 
   async render(ctx: RenderContext, q: QualitySettings, output: string, onProgress: (p: number) => void) {
-    return renderClip(ctx, await this.bundle(ctx), q, output, onProgress);
+    return renderClip(ctx, await this.bundle(ctx), q, output, onProgress, this.three);
   }
 
   async cacheInputs(ctx: RenderContext) {
     const code = this.source(ctx) ?? "";
-    return { code: sha(code), lib: libHash(), shared: sharedHash(code, this.sharedDir(ctx)) };
+    return { code: sha(code), lib: libHash(this.three), shared: sharedHash(code, this.sharedDir(ctx)) };
   }
 }
 

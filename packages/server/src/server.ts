@@ -14,6 +14,8 @@ import { REFERENCE_ROLES } from "@studio/core/studio/model/asset";
 import { NewProjectSchema, ProjectSettingsSchema } from "@studio/core/studio/model/project";
 import type { Studio } from "@studio/core/studio/studio";
 import { deleteAsset, getAsset, importAsset, setProjectReference, updateAsset } from "@studio/core/studio/store/assets";
+import { assetPreview } from "@studio/core/studio/assets/preview";
+import type { ModelInfo } from "@studio/core/studio/assets/gltf";
 import { getChapter } from "@studio/core/studio/store/chapters";
 import { createProject, getProject, updateProject } from "@studio/core/studio/store/projects";
 import { getRun, readRunLog } from "@studio/core/studio/store/runs";
@@ -138,7 +140,15 @@ export async function startServer(studio: Studio, opts: { port?: number; orchest
         req.pipe(out);
       });
       const asset = await importAsset(studio, project.id, tmp, { originalName: name });
-      return { id: asset.id, kind: asset.kind };
+      // A model's pictures take a browser to draw, so they follow in the background. The stand-in runner goes without unless a browser is set.
+      if (asset.kind === "model" && (studio.config.runner !== "mock" || studio.config.render.browserExecutable)) {
+        background(
+          o.lanes
+            .run("renders", () => assetPreview(studio, asset.id))
+            .then(() => studio.emit("asset.changed", { projectId: project.id, targetId: asset.id })),
+        );
+      }
+      return { id: asset.id, kind: asset.kind, warnings: (asset.meta.model as ModelInfo | undefined)?.warnings ?? [] };
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

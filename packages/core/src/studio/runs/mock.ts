@@ -127,7 +127,7 @@ export class MockStudioRunner implements StudioRunner {
           });
         } else {
           const saved = await call("scene_save_spec", { spec: { ...base, uses: shared ? [{ name: shared.name, version: shared.version }] : [] } });
-          fs.writeFileSync(saved.codeFile, sceneCode(base.title, notes, cues.length > 1, Boolean(shared)));
+          fs.writeFileSync(saved.codeFile, scene.type === "r3f" ? sceneCode3d(base.title, notes, cues.length > 1) : sceneCode(base.title, notes, cues.length > 1, Boolean(shared)));
           req.onLog("tool", "Write scene.tsx");
         }
         await call("scene_check");
@@ -213,6 +213,38 @@ export default function Scene() {
           : `<div style={{ position: "absolute", left: cx - 300, top: cy - 160, width: 600, textAlign: "center", color: t.palette.text, fontFamily: t.fontFamily, fontSize: 54, fontWeight: 700, opacity: first }}>{${JSON.stringify((notes ?? title).slice(0, 36))}}</div>`
       }
       <div style={{ position: "absolute", left: cx - 300, top: cy + 60, width: 600 * second, height: 10, borderRadius: 5, background: t.palette.accent }} />
+    </>
+  );
+}
+`;
+
+const sceneCode3d = (title: string, notes: string | undefined, second: boolean) => `import React from "react";
+import { useCurrentFrame, useVideoConfig } from "remotion";
+import { Label, useCueAppear, useTheme } from "@pipeline/lib";
+import { Ground, Scene3D, orbit, useScreenPoint, type CameraSpec } from "@pipeline/lib/three";
+
+export default function Scene() {
+  const t = useTheme();
+  const frame = useCurrentFrame();
+  const { durationInFrames } = useVideoConfig();
+  const first = useCueAppear("first", { durationSec: 0.6 });
+  ${second ? 'const second = useCueAppear("second", { durationSec: 0.6 });' : "const second = first;"}
+  const camera: CameraSpec = { position: orbit(25 + 30 * (frame / durationInFrames), 11, 3.5), lookAt: [0, -0.4, 0], fov: 32 };
+  const top = useScreenPoint(camera, [0, 1.9, 0]);
+  return (
+    <>
+      <Scene3D camera={camera} shadows>
+        <mesh scale={first} position={[-1.3, 0, 0]} castShadow>
+          <boxGeometry args={[1.8, 1.8, 1.8]} />
+          <meshStandardMaterial color={t.palette.primary} roughness={0.6} />
+        </mesh>
+        <mesh scale={second} position={[1.5, 0, 0]} castShadow>
+          <sphereGeometry args={[1, 48, 32]} />
+          <meshStandardMaterial color={t.palette.accent} roughness={0.5} />
+        </mesh>
+        <Ground y={-0.92} />
+      </Scene3D>
+      <Label x={top.x} y={top.y} progress={first} box>{${JSON.stringify((notes ?? title).slice(0, 36))}}</Label>
     </>
   );
 }
