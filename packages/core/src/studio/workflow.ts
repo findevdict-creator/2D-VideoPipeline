@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { assemble, type AssembleOptions, type AssembleResult } from "./assemble.js";
+import { assemble, listRenders, scenesChangedSince, type AssembleOptions, type AssembleResult } from "./assemble.js";
 import { exportVideo, type ExportOptions, type ExportResult } from "./export.js";
 import { newId, nowIso } from "./ids.js";
 import { ffmpeg } from "./media/ffmpeg.js";
@@ -363,9 +363,16 @@ export class Orchestrator {
         if (open.length) waitingOn.push(`${open.length} of ${scenes.length} scenes are not approved yet.`);
         break;
       }
-      case "assembly":
-        if (!studio.db.get("SELECT 1 FROM renders WHERE project_id = ? AND kind = 'final' AND scope = 'project'", [projectId])) waitingOn.push("The final video has not been rendered yet.");
+      case "assembly": {
+        // A scene can still be sent back for changes here, and then the finished video is no longer the video.
+        const open = scenes.filter((s) => s.status !== "approved");
+        if (open.length) waitingOn.push(`${open.length} of ${scenes.length} scenes are not approved yet.`);
+        const final = listRenders(studio, projectId).find((r) => r.kind === "final" && r.scope === "project");
+        const changed = final ? scenesChangedSince(studio, final) : 0;
+        if (!final) waitingOn.push("The final video has not been rendered yet.");
+        else if (changed) waitingOn.push(`${changed === 1 ? "1 scene has" : `${changed} scenes have`} changed since the final video was rendered. Render it again.`);
         break;
+      }
     }
     // Scenes of an approved chapter are built while later chapters are still being written, so scene runs never hold a stage back.
     const planning = active.filter((r) => r.targetKind !== "scene");
