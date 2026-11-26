@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { api, type SceneDetail, type Snapshot } from "./api";
+import { api, type Keyframes, type SceneDetail, type Snapshot } from "./api";
 import { RunLog } from "./RunLog";
 import { ago, Chip, duration, NotesBox, RUN_STATUS, SCENE_STATUS, TYPE_NAME, useAction } from "./ui";
 
@@ -64,6 +64,7 @@ export function SceneDrawer({ sceneId, snapshot, refreshKey, onClose }: { sceneI
             ))}
           </div>
         )}
+        <Compare scene={scene} still={version?.stills.at(-1)?.url ?? null} />
         {viewingOld && <p className="notice">You are looking at version {version!.version}. The current one is version {scene.current!.version}.</p>}
 
         {/* What you can do */}
@@ -128,6 +129,7 @@ export function SceneDrawer({ sceneId, snapshot, refreshKey, onClose }: { sceneI
             <p>{scene.spec?.visual.description || scene.visualIdea}</p>
           </>
         )}
+        <References scene={scene} snapshot={snapshot} onChanged={load} />
         {version?.summary && (
           <>
             <h4>What Claude says it built</h4>
@@ -233,6 +235,150 @@ export function SceneDrawer({ sceneId, snapshot, refreshKey, onClose }: { sceneI
         )}
       </div>
     </aside>
+  );
+}
+
+const ROLE_TAKES: Record<string, string> = { style: "the look", layout: "the composition", motion: "the motion" };
+const clock = (sec: number) => `${Math.floor(sec / 60)}:${(sec % 60).toFixed(1).padStart(4, "0")}`;
+
+/** The reference the scene was built after, next to the scene as it is now, so you can judge how well it was followed. */
+function Compare({ scene, still }: { scene: SceneDetail; still: string | null }) {
+  const ref = scene.references.find((r) => r.pictureUrl && r.role === "layout") ?? scene.references.find((r) => r.pictureUrl);
+  if (!ref?.pictureUrl || !still) return null;
+  return (
+    <div className="compare">
+      <figure>
+        <img src={ref.pictureUrl} alt="" />
+        <figcaption>
+          Reference: {ref.label}
+          {ref.atSec != null ? ` at ${clock(ref.atSec)}` : ""} · for {ROLE_TAKES[ref.role] ?? ref.role}
+        </figcaption>
+      </figure>
+      <figure>
+        <img src={still} alt="" />
+        <figcaption>This scene, at its end</figcaption>
+      </figure>
+    </div>
+  );
+}
+
+/** Pictures and clips you want this one scene to follow. */
+function References({ scene, snapshot, onChanged }: { scene: SceneDetail; snapshot: Snapshot; onChanged: () => void }) {
+  const [busy, act] = useAction();
+  const [adding, setAdding] = useState(false);
+  const [assetId, setAssetId] = useState("");
+  const [role, setRole] = useState("layout");
+  const [note, setNote] = useState("");
+  const [atSec, setAtSec] = useState<number | null>(null);
+  const [frames, setFrames] = useState<Keyframes>();
+  const candidates = snapshot.assets.filter((a) => a.kind === "image" || a.kind === "video");
+  const asset = candidates.find((a) => a.id === assetId);
+
+  useEffect(() => {
+    setFrames(undefined);
+    setAtSec(null);
+    if (asset?.kind !== "video") return;
+    let live = true;
+    api.keyframes(asset.id).then((k) => live && setFrames(k), () => undefined);
+    return () => {
+      live = false;
+    };
+  }, [asset?.id, asset?.kind]);
+
+  const save = async () => {
+    if (await act(() => api.setSceneReference(scene.id, { assetId, role, note: note.trim(), atSec }), "Attached")) {
+      setAdding(false);
+      setAssetId("");
+      setNote("");
+      onChanged();
+    }
+  };
+  if (!candidates.length && !scene.references.length) return null;
+  return (
+    <>
+      <h4>References for this scene</h4>
+      {scene.references.length > 0 && (
+        <ul className="refs">
+          {scene.references.map((r) => (
+            <li key={r.assetId}>
+              {r.pictureUrl ? <img src={r.pictureUrl} alt="" /> : <span className="ref-empty" />}
+              <div className="grow">
+                <strong>{r.label}</strong>
+                <span className="muted small">
+                  {" "}
+                  · for {ROLE_TAKES[r.role] ?? r.role}
+                  {r.atSec != null ? ` · the moment at ${clock(r.atSec)}` : ""}
+                </span>
+                {r.note && <div className="small">{r.note}</div>}
+              </div>
+              <button className="link danger" disabled={busy} onClick={async () => (await act(() => api.setSceneReference(scene.id, { assetId: r.assetId, role: null }))) && onChanged()}>
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {adding ? (
+        <div className="form">
+          <label>
+            Picture or clip
+            <select value={assetId} onChange={(e) => setAssetId(e.target.value)}>
+              <option value="">Choose one of the project's files</option>
+              {candidates.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.label} ({a.kind})
+                </option>
+              ))}
+            </select>
+          </label>
+          {asset?.kind === "video" && (
+            <div>
+              <span className="small">Which moment? {frames ? "One frame of each shot is shown." : "Finding the shots…"}</span>
+              {frames && (
+                <div className="keyframes">
+                  {frames.keyframes.map((k) => (
+                    <button key={k.index} className={`keyframe ${atSec === k.atSec ? "keyframe-on" : ""}`} onClick={() => setAtSec(atSec === k.atSec ? null : k.atSec)} title={`Shot from ${clock(k.shotStartSec)} to ${clock(k.shotEndSec)}`}>
+                      {k.url && <img src={k.url} alt={`Frame at ${clock(k.atSec)}`} />}
+                      <span>{clock(k.atSec)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <span className="muted small">{atSec === null ? "No frame chosen: Claude looks at the whole clip." : `Claude builds this scene after the frame at ${clock(atSec)}.`}</span>
+            </div>
+          )}
+          <label>
+            Follow it for
+            <select value={role} onChange={(e) => setRole(e.target.value)}>
+              <option value="layout">the composition: what is where, and how large</option>
+              <option value="style">the look: colours and line</option>
+              <option value="motion">the motion: how things move</option>
+            </select>
+          </label>
+          <label>
+            Anything to add
+            <input value={note} placeholder="For example: same arrangement, but with our satellite instead of the rocket" onChange={(e) => setNote(e.target.value)} />
+          </label>
+          <div className="row">
+            <button className="btn btn-primary" disabled={busy || !assetId} onClick={save}>
+              Attach to this scene
+            </button>
+            <button className="btn btn-quiet" onClick={() => setAdding(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        candidates.length > 0 && (
+          <button className="link" onClick={() => setAdding(true)}>
+            Attach a reference
+          </button>
+        )
+      )}
+      <p className="muted small">
+        A reference is a direction, not something to copy. Claude follows it the next time it builds this scene{scene.current ? ": use “Ask for changes” to have it rebuilt." : "."}
+      </p>
+    </>
   );
 }
 

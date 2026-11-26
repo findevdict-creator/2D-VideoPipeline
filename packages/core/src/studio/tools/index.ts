@@ -4,6 +4,7 @@ import { z } from "zod";
 import { LIB_EXAMPLE, LIB_README } from "../../paths.js";
 import { checkSceneSource } from "../../render/sceneCheck.js";
 import { loadPronunciations } from "../../voice/text.js";
+import { clock, referenceKeyframes } from "../assets/keyframes.js";
 import { assetPreview } from "../assets/preview.js";
 import { ASSET_KINDS } from "../model/asset.js";
 import { ThemeSchema } from "../model/project.js";
@@ -13,10 +14,10 @@ import { renderSharedPreview, typecheckScene } from "../renderers/remotion.js";
 import { checkScene, renderSceneStills } from "../scenes/render.js";
 import { checkSpecAssets } from "../scenes/validate.js";
 import type { ModelInfo } from "../assets/gltf.js";
-import { listAssets, listProjectReferences } from "../store/assets.js";
+import { listAssets, listProjectReferences, listSceneReferences, type Asset } from "../store/assets.js";
 import { getChapter, listChapters, proposeChapters } from "../store/chapters.js";
 import { latestDocument, listDocuments, readDocument, saveDocument } from "../store/documents.js";
-import { getProject, projectPaths, updateProject } from "../store/projects.js";
+import { getProject, projectPaths } from "../store/projects.js";
 import type { RunKind } from "../store/runs.js";
 import {
   currentVersion,
@@ -27,11 +28,12 @@ import {
   saveSpec,
   sceneLabel,
   sceneNarration,
+  setTheme,
   updateVersion,
   versionPaths,
   type Scene,
 } from "../store/scenes.js";
-import { findShared, listShared, planShared, readShared, requestShared, saveShared, setSharedPreview, SHARED_NAME } from "../store/shared.js";
+import { characterInfo, findShared, listShared, planShared, readShared, requestShared, saveShared, setSharedPreview, SHARED_KINDS, SHARED_NAME, type SharedAsset } from "../store/shared.js";
 import { cueFrames, ensureVoice } from "../voice.js";
 import { defineTool, ToolRefusal, type ToolContext, type ToolDef } from "./types.js";
 
@@ -56,6 +58,32 @@ function modelSummary(model: ModelInfo) {
     triangles: model.triangles,
     warnings: model.warnings,
   };
+}
+
+/** A shared asset as agents see it in a list: what it is and how a scene uses it. */
+function sharedSummary(ctx: ToolContext, s: SharedAsset) {
+  const base = { name: s.name, kind: s.kind, brief: s.brief, status: s.status, version: s.currentVersion, built: s.currentVersion > 0, importFrom: `@shared/${s.name}` };
+  if (s.kind !== "character") return base;
+  const info = characterInfo(readShared(ctx.studio, ctx.projectId, s.name));
+  return {
+    ...base,
+    ...(info ? { poses: info.poses, expressions: info.expressions } : {}),
+    howToUse: `A character. Place it with <${s.name} x={...} y={...} height={...} pose="..." expression="..." facing="left" | "right" progress={...} talking={...} />: x and y are where its feet stand. Its proportions and colours are fixed, so never redraw it, recolour it or stretch it.`,
+  };
+}
+
+const TAKE = {
+  style: "its colours, line quality and overall look",
+  layout: "its composition: what is on screen, where each thing sits and how large it is",
+  motion: "how things move and in what order",
+} as const;
+
+/** What an agent should do with a reference, said for the kind of file it is. */
+function referenceGuide(asset: Asset | undefined, role: keyof typeof TAKE, atSec: number | null | undefined, forScene: boolean): string {
+  const scope = forScene ? "The person attached this to your scene" : "A reference for the whole video";
+  if (asset?.kind !== "video") return `${scope}. Look at it with asset_view and take ${TAKE[role]}. It shows a direction, not a picture to copy.`;
+  const moment = atSec != null ? ` The person picked the moment at ${clock(atSec)}; that frame is marked with a star.` : "";
+  return `${scope}. Call reference_keyframes to see one frame for each of its shots.${moment} Take ${TAKE[role]}${role === "layout" ? ", and rebuild that arrangement with this video's own theme and content" : ""}. It shows a direction, not a picture to copy.`;
 }
 
 function scopeOf(ctx: ToolContext, writers: RunKind[]) {
@@ -106,7 +134,7 @@ const tools: ToolDef<any>[] = [
           ...r,
           label: assets.get(r.assetId)?.label,
           kind: assets.get(r.assetId)?.kind,
-          howToUse: "A reference shows a direction to take, not a picture to copy. Look at it with asset_view.",
+          howToUse: referenceGuide(assets.get(r.assetId), r.role, null, false),
         })),
         chapters: listChapters(studio, project.id).map((c) => ({
           id: c.id,
@@ -119,7 +147,7 @@ const tools: ToolDef<any>[] = [
         documents: listDocuments(studio, project.id)
           .filter((d) => d.status !== "superseded")
           .map((d) => ({ kind: d.kind, version: d.version, status: d.status, chapterId: d.chapterId })),
-        sharedAssets: listShared(studio, project.id).map((s) => ({ name: s.name, brief: s.brief, status: s.status, version: s.currentVersion })),
+        sharedAssets: listShared(studio, project.id).map((s) => ({ name: s.name, kind: s.kind, brief: s.brief, status: s.status, version: s.currentVersion })),
       };
     },
   }),
@@ -187,11 +215,15 @@ const tools: ToolDef<any>[] = [
           words: track.words.map((w) => ({ text: w.text, startSec: w.startSec })),
           cues: cues.map((c) => ({ id: c.id, phrase: c.phrase, startSec: Math.round(c.startSec * 100) / 100, startFrame: c.startFrame, match: c.match })),
         },
+        references: listSceneReferences(studio, scene.id).map((r) => {
+          const asset = listAssets(studio, project.id).find((a) => a.id === r.assetId);
+          return { assetId: r.assetId, label: asset?.label, kind: asset?.kind, role: r.role, note: r.note, ...(r.atSec != null ? { atSec: r.atSec } : {}), howToUse: referenceGuide(asset, r.role, r.atSec, true) };
+        }),
         previous: neighbour(all[at - 1]),
         next: neighbour(all[at + 1]),
         sharedAssets: listShared(studio, project.id)
           .filter((s) => s.currentVersion > 0)
-          .map((s) => ({ name: s.name, version: s.currentVersion, brief: s.brief, importFrom: `@shared/${s.name}` })),
+          .map((s) => sharedSummary(ctx, s)),
       };
     },
   }),
@@ -231,33 +263,60 @@ const tools: ToolDef<any>[] = [
         height: asset.height,
         durationSec: asset.durationSec,
         ...(asset.meta.model ? { model: modelSummary(asset.meta.model as ModelInfo) } : {}),
+        ...(asset.kind === "video" ? { note: "These frames are evenly spaced. For one frame of each shot and a contact sheet, call reference_keyframes." } : {}),
         images: previews.map((p) => ({ file: p.file, caption: p.caption ?? (p.atSec !== undefined ? `${asset.label} at ${p.atSec}s` : asset.label) })),
       };
     },
   }),
   defineTool({
-    name: "shared_list",
-    description: "The shared components every scene can build on, so recurring things look the same everywhere.",
-    input: z.object({}),
-    handler: (ctx) => ({
-      shared: listShared(ctx.studio, ctx.projectId).map((s) => ({
-        name: s.name,
-        brief: s.brief,
-        status: s.status,
-        version: s.currentVersion,
-        built: s.currentVersion > 0,
-        importFrom: `@shared/${s.name}`,
-      })),
+    name: "reference_keyframes",
+    description:
+      "For a reference video: one frame for each of its shots, found by comparing its frames, and a contact sheet that shows them all with their numbers and times. Use it instead of asset_view when you need to see how a reference is composed, shot by shot. For an image you get the image.",
+    input: z.object({
+      assetId: z.string(),
+      max: z.number().int().min(1).max(16).default(8).describe("The most frames to return. Shots that look alike are merged to stay under it"),
+      frames: z.enum(["all", "sheet"]).default("all").describe('"sheet" returns only the contact sheet, which is enough to choose a frame from'),
     }),
+    handler: async (ctx, { assetId, max, frames }) => {
+      const asset = listAssets(ctx.studio, ctx.projectId).find((a) => a.id === assetId);
+      if (!asset) throw new ToolRefusal(`There is no asset with the id "${assetId}" in this project. Use asset_list to see what exists.`);
+      if (asset.kind !== "image" && asset.kind !== "video") throw new ToolRefusal(`"${asset.label}" is ${asset.kind}, which has no frames to show.`);
+      // In a scene run, the moment the person picked for this scene is always among the frames.
+      const own = ctx.run?.targetKind === "scene" && ctx.run.targetId ? listSceneReferences(ctx.studio, ctx.run.targetId).find((r) => r.assetId === assetId) : undefined;
+      const result = await referenceKeyframes(ctx.studio, assetId, { max, include: own?.atSec != null ? [own.atSec] : [] });
+      const shown = frames === "sheet" && result.sheet ? [] : result.keyframes;
+      return {
+        label: asset.label,
+        kind: asset.kind,
+        durationSec: asset.durationSec,
+        keyframes: result.keyframes.map((k) => ({
+          number: k.index,
+          atSec: k.atSec,
+          ...(asset.kind === "video" ? { shot: `${clock(k.shotStartSec)} to ${clock(k.shotEndSec)}` } : {}),
+          ...(k.asked ? { pickedByThePerson: true } : {}),
+        })),
+        contactSheet: result.sheet,
+        images: [
+          ...(result.sheet ? [{ file: result.sheet, caption: `${asset.label}: every keyframe, numbered, with its time. A star marks the moment the person picked.` }] : []),
+          ...shown.map((k) => ({ file: k.file, caption: asset.kind === "video" ? `${asset.label}, keyframe ${k.index} at ${clock(k.atSec)}${k.asked ? " (picked by the person)" : ""}` : asset.label })),
+        ],
+      };
+    },
+  }),
+  defineTool({
+    name: "shared_list",
+    description: "The shared components and characters every scene can build on, so recurring things look the same everywhere.",
+    input: z.object({}),
+    handler: (ctx) => ({ shared: listShared(ctx.studio, ctx.projectId).map((s) => sharedSummary(ctx, s)) }),
   }),
   defineTool({
     name: "shared_get",
-    description: "The source of one shared component, to see its props before using it.",
+    description: "The source of one shared component or character, to see its props before using it.",
     input: z.object({ name: z.string() }),
     handler: (ctx, { name }) => {
       const asset = findShared(ctx.studio, ctx.projectId, name);
       if (!asset) throw new ToolRefusal(`There is no shared asset called "${name}". Use shared_list to see what exists.`);
-      return { name, brief: asset.brief, version: asset.currentVersion, importFrom: `@shared/${name}`, code: readShared(ctx.studio, ctx.projectId, name) ?? null };
+      return { ...sharedSummary(ctx, asset), code: readShared(ctx.studio, ctx.projectId, name) ?? null };
     },
   }),
 
@@ -298,46 +357,69 @@ const tools: ToolDef<any>[] = [
   }),
   defineTool({
     name: "theme_set",
-    description: "Set the look every scene shares: colours, font and style words.",
+    description: 'Set the look every scene shares: colours, font, style words, and whether lines are "clean" or "hand-drawn".',
     writers: ["bible"],
     input: z.object({ theme: ThemeSchema }),
     handler: (ctx, { theme }) => {
       scopeOf(ctx, ["bible"]);
-      updateProject(ctx.studio, ctx.projectId, { settings: { theme } });
-      return { saved: true };
+      const stale = setTheme(ctx.studio, ctx.projectId, theme);
+      return { saved: true, ...(stale.length ? { scenesNowStale: stale.length } : {}) };
     },
   }),
   defineTool({
     name: "shared_plan",
     description:
-      "List the shared components to build before any scene starts: things that appear in more than one scene and must look the same each time, such as a recurring character or object.",
+      'List what to build before any scene starts: things that appear in more than one scene and must look the same each time. A recurring object or diagram is a "component". A person, animal or mascot is a "character", which gets fixed proportions and colours and a set of poses and expressions.',
     writers: ["bible"],
     input: z.object({
       items: z
-        .array(z.object({ name: z.string().regex(SHARED_NAME, "PascalCase letters and digits, such as CameraBody"), brief: z.string().min(10).describe("What it shows, its props, and how scenes use it") }))
+        .array(
+          z.object({
+            name: z.string().regex(SHARED_NAME, "PascalCase letters and digits, such as CameraBody"),
+            kind: z.enum(SHARED_KINDS).default("component"),
+            brief: z.string().min(10).describe("What it shows, its props, and how scenes use it. For a character: who it is, what it looks like, and the poses and expressions the video needs"),
+          }),
+        )
         .max(20),
     }),
     handler: (ctx, { items }) => {
       scopeOf(ctx, ["bible"]);
-      return { shared: planShared(ctx.studio, ctx.projectId, items).map((s) => ({ name: s.name, status: s.status })) };
+      return { shared: planShared(ctx.studio, ctx.projectId, items).map((s) => ({ name: s.name, kind: s.kind, status: s.status })) };
     },
   }),
   defineTool({
     name: "shared_save",
     description:
-      'Save a shared component: a .tsx file with named exports that scenes import from "@shared/<name>". It also exports a Demo component showing it in typical use. The code is checked before it is saved, and you get a picture of the Demo back; fix what the check reports or what looks wrong, and save again.',
+      'Save a shared component or character: a .tsx file with named exports that scenes import from "@shared/<name>". A component also exports a Demo showing it in typical use. A character is made with defineCharacter and needs no Demo: the studio draws its sheet, every pose and expression. The code is checked before it is saved, and you get the picture back; fix what the check reports or what looks wrong, and save again.',
     writers: ["foundation"],
-    input: z.object({ name: z.string().regex(SHARED_NAME), code: z.string().min(20), brief: z.string().optional(), notes: z.string().optional().describe("What changed in this version") }),
+    input: z.object({
+      name: z.string().regex(SHARED_NAME),
+      code: z.string().min(20),
+      kind: z.enum(SHARED_KINDS).optional().describe("Only for something that is not on the build list yet. Listed things keep the kind they were planned with"),
+      brief: z.string().optional(),
+      notes: z.string().optional().describe("What changed in this version"),
+    }),
     handler: async (ctx, input) => {
       const run = scopeOf(ctx, ["foundation"]);
       const { studio } = ctx;
       const p = projectPaths(studio, getProject(studio, ctx.projectId));
+      const kind = findShared(studio, ctx.projectId, input.name)?.kind ?? input.kind ?? "component";
       const problems = checkSceneSource(input.code, { allowedPrefixes: ["@shared/"], defaultExport: false });
-      if (!new RegExp(`export\\s+(?:const|function)\\s+${input.name}\\b`).test(input.code)) {
-        problems.push(`The file must export a component named ${input.name} (export const ${input.name} = ... or export function ${input.name}).`);
-      }
-      if (!/export\s+(?:const|function)\s+Demo\b/.test(input.code)) {
-        problems.push(`The file must also export a component named Demo that shows ${input.name} in typical use, with fixed props and nothing else on screen. It is what the person sees when approving.`);
+      if (kind === "character") {
+        if (!new RegExp(`export\\s+const\\s+${input.name}\\s*=\\s*defineCharacter\\s*\\(`).test(input.code)) {
+          problems.push(`${input.name} is a character, so the file must make it with the library: export const ${input.name} = defineCharacter({ width, height, poses, expressions, colors, draw }). That is what keeps its proportions and colours the same in every scene.`);
+        } else {
+          const info = characterInfo(input.code);
+          if (!info?.poses.length) problems.push('Give the character its poses as a list of names written out in the file, such as poses: ["stand", "point", "wave"].');
+          if (!info?.expressions.length) problems.push('Give the character its expressions as a list of names written out in the file, such as expressions: ["calm", "happy", "surprised"].');
+        }
+      } else {
+        if (!new RegExp(`export\\s+(?:const|function)\\s+${input.name}\\b`).test(input.code)) {
+          problems.push(`The file must export a component named ${input.name} (export const ${input.name} = ... or export function ${input.name}).`);
+        }
+        if (!/export\s+(?:const|function)\s+Demo\b/.test(input.code)) {
+          problems.push(`The file must also export a component named Demo that shows ${input.name} in typical use, with fixed props and nothing else on screen. It is what the person sees when approving.`);
+        }
       }
       if (!problems.length) {
         const probe = path.join(p.work, "shared-check", run.id, `${input.name}.tsx`);
@@ -347,19 +429,23 @@ const tools: ToolDef<any>[] = [
         fs.rmSync(path.dirname(probe), { recursive: true, force: true });
       }
       if (problems.length) return { saved: false, problems };
-      const result = saveShared(studio, ctx.projectId, { name: input.name, code: input.code, brief: input.brief, notes: input.notes, createdBy: run.agent });
-      const saved = { saved: true, name: input.name, version: result.version.version, scenesNowStale: result.staleScenes.length };
+      const result = saveShared(studio, ctx.projectId, { name: input.name, code: input.code, brief: input.brief, notes: input.notes, createdBy: run.agent, kind });
+      const saved = { saved: true, name: input.name, kind, version: result.version.version, scenesNowStale: result.staleScenes.length, ...(kind === "character" ? characterInfo(input.code) : {}) };
       // The stand-in runner is for trying the flow without a browser, so it goes without pictures unless one is set.
       if (studio.config.runner === "mock" && !studio.config.render.browserExecutable) return saved;
       const preview = path.join(p.shared, "previews", `${input.name}-v${result.version.version}.png`);
       try {
-        await renderSharedPreview(studio, getProject(studio, ctx.projectId), input.name, p.abs(result.version.path), preview);
+        await renderSharedPreview(studio, getProject(studio, ctx.projectId), input.name, p.abs(result.version.path), preview, kind);
       } catch (err) {
-        return { ...saved, previewProblem: `The Demo could not be drawn: ${(err as Error).message.split("\n")[0]}. If that is a fault in the component, fix it and save again.` };
+        return { ...saved, previewProblem: `${kind === "character" ? "The character's sheet" : "The Demo"} could not be drawn: ${(err as Error).message.split("\n")[0]}. If that is a fault in the code, fix it and save again.` };
       }
       setSharedPreview(studio, result.version.id, p.rel(preview));
       studio.emit("shared.changed", { projectId: ctx.projectId, data: { name: input.name } });
-      return { ...saved, images: [{ file: preview, caption: `${input.name}: its Demo, two seconds in. Check that it is drawn as the brief says.` }] };
+      const caption =
+        kind === "character"
+          ? `${input.name}: every pose and every expression. Check that each one reads clearly, that they are plainly the same character, and that it matches the brief.`
+          : `${input.name}: its Demo, two seconds in. Check that it is drawn as the brief says.`;
+      return { ...saved, images: [{ file: preview, caption }] };
     },
   }),
   defineTool({

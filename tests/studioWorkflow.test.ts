@@ -215,7 +215,7 @@ test("a run may only change what it owns, and no tool can approve anything", asy
 
   // Nothing approves, deletes, or runs commands.
   for (const tool of TOOLS) assert.doesNotMatch(tool.name, /approve|delete|remove|shell|bash|exec|run_/);
-  assert.equal(TOOLS.length, 19);
+  assert.equal(TOOLS.length, 20);
   studio.close();
 });
 

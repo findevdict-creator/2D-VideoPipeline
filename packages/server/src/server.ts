@@ -11,18 +11,18 @@ import { build } from "esbuild";
 import { REPO_ROOT } from "@studio/core/paths";
 import { serve } from "@studio/core/studio/media/fileServer";
 import { REFERENCE_ROLES } from "@studio/core/studio/model/asset";
-import { NewProjectSchema, ProjectSettingsSchema } from "@studio/core/studio/model/project";
+import { NewProjectSchema, ProjectSettingsSchema, type ProjectSettings } from "@studio/core/studio/model/project";
 import type { Studio } from "@studio/core/studio/studio";
-import { deleteAsset, getAsset, importAsset, setProjectReference, updateAsset } from "@studio/core/studio/store/assets";
+import { deleteAsset, getAsset, importAsset, setProjectReference, setSceneReference, updateAsset } from "@studio/core/studio/store/assets";
 import { assetPreview } from "@studio/core/studio/assets/preview";
 import type { ModelInfo } from "@studio/core/studio/assets/gltf";
 import { getChapter } from "@studio/core/studio/store/chapters";
 import { createProject, getProject, updateProject } from "@studio/core/studio/store/projects";
 import { getRun, readRunLog } from "@studio/core/studio/store/runs";
-import { getScene, rollbackScene, updatePlan } from "@studio/core/studio/store/scenes";
+import { getScene, rollbackScene, setTheme, updatePlan } from "@studio/core/studio/store/scenes";
 import { closeSharedRequest } from "@studio/core/studio/store/shared";
 import { Orchestrator } from "@studio/core/studio/workflow";
-import { projectList, projectSnapshot, sceneDetail } from "./snapshot.js";
+import { assetKeyframes, projectList, projectSnapshot, sceneDetail } from "./snapshot.js";
 
 const WEB_DIR = path.join(REPO_ROOT, "packages", "web");
 const MAX_JSON = 2 * 1024 * 1024;
@@ -73,10 +73,22 @@ export async function startServer(studio: Studio, opts: { port?: number; orchest
   route("GET", "/api/projects/:project", ({ params }) => projectSnapshot(studio, o, params.project!));
   route("PATCH", "/api/projects/:project", ({ params, body }) => {
     const project = getProject(studio, params.project!);
-    const settings = body.settings ? ProjectSettingsSchema.partial().safeParse(body.settings) : undefined;
-    if (settings && !settings.success) throw new Refused(settings.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join(". "));
-    updateProject(studio, project.id, { title: body.title, description: body.description, targetDurationSec: body.targetDurationSec, settings: settings?.data });
-    return { ok: true };
+    // Only what the request names is changed. A group such as the theme or the music may be sent in part, and the rest of it stays.
+    const given: Record<string, unknown> | undefined = body.settings && typeof body.settings === "object" ? body.settings : undefined;
+    let patch: Partial<ProjectSettings> = {};
+    if (given) {
+      const current = project.settings as Record<string, unknown>;
+      const group = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+      const merged = Object.fromEntries(Object.entries(given).map(([key, value]) => [key, group(value) && group(current[key]) ? { ...current[key], ...value } : value]));
+      const parsed = ProjectSettingsSchema.safeParse({ ...current, ...merged });
+      if (!parsed.success) throw new Refused(parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join(". "));
+      patch = Object.fromEntries(Object.entries(parsed.data).filter(([key]) => key in given)) as Partial<ProjectSettings>;
+    }
+    // A new look puts the scenes already drawn out of date, so it goes through the call that marks them.
+    const { theme, ...rest } = patch;
+    updateProject(studio, project.id, { title: body.title, description: body.description, targetDurationSec: body.targetDurationSec, settings: given ? rest : undefined });
+    const stale = theme ? setTheme(studio, project.id, theme) : [];
+    return { ok: true, scenesNowStale: stale.length };
   });
   route("POST", "/api/projects/:project/stage/start", ({ params, body }) => {
     const runs = o.startStage(getProject(studio, params.project!).id, notes(body) || undefined);
@@ -123,6 +135,16 @@ export async function startServer(studio: Studio, opts: { port?: number; orchest
     const scene = getScene(studio, params.scene!);
     if (scene.currentVersionId) throw new Refused("This scene has already been built. Ask for changes instead, so the scene is rebuilt to match.");
     updatePlan(studio, scene.id, { title: body.title, narration: body.narration, visualIdea: body.visualIdea, type: body.type });
+    return { ok: true };
+  });
+  route("PUT", "/api/scenes/:scene/references", ({ params, body }) => {
+    const scene = getScene(studio, params.scene!);
+    const role = body?.role ?? null;
+    if (typeof body?.assetId !== "string") throw new Refused("Say which file: assetId.");
+    if (role !== null && !(REFERENCE_ROLES as readonly string[]).includes(role)) throw new Refused(`A reference is one of: ${REFERENCE_ROLES.join(", ")}.`);
+    const atSec = body.atSec === null || body.atSec === undefined ? null : Number(body.atSec);
+    if (atSec !== null && !(atSec >= 0)) throw new Refused("atSec is a time in seconds.");
+    setSceneReference(studio, scene.id, role === null ? { assetId: body.assetId, role: null } : { assetId: body.assetId, role, note: String(body.note ?? ""), atSec });
     return { ok: true };
   });
   route("POST", "/api/scenes/:scene/approve", ({ params, body }) => ({ status: o.approveScene(params.scene!, notes(body)).status }));
@@ -185,6 +207,7 @@ export async function startServer(studio: Studio, opts: { port?: number; orchest
     }
     return { ok: true };
   });
+  route("GET", "/api/assets/:asset/keyframes", ({ params, url }) => assetKeyframes(studio, params.asset!, Number(url.searchParams.get("max")) || undefined));
   route("DELETE", "/api/assets/:asset", ({ params }) => {
     deleteAsset(studio, params.asset!);
     return { ok: true };

@@ -86,3 +86,69 @@ import { CameraBody } from "@shared/CameraBody";
 ```
 
 A shared part follows the same rules as a scene. Its file exports the component by name, and also exports a `Demo` component that shows it with typical props, which the studio renders as the part's preview picture. A scene must not redraw something that exists as a shared part: use `shared_list` to see what there is, and `shared_request` to ask for one that is missing.
+
+## Characters (studio)
+
+A person, animal or mascot that appears in several scenes is defined once as a shared part, with `defineCharacter`. The definition owns the character's proportions, colours, poses and expressions; a scene only places it.
+
+```tsx
+import React from "react";
+import { defineCharacter } from "@pipeline/lib";
+
+export const Mia = defineCharacter({
+  // The box she is drawn in, in her own units. She faces right; her feet stand in the middle of the bottom edge.
+  width: 200,
+  height: 420,
+  poses: ["stand", "point", "wave"],
+  expressions: ["calm", "happy", "surprised"],
+  // Her own colours. A palette key such as "primary" follows the theme; anything else is fixed.
+  colors: { skin: "#F2C6A0", hair: "#3B2A20", shirt: "primary", trousers: "#2B3A55" },
+  draw: ({ pose, expression, colors, blink, mouth }) => {
+    const arm = pose === "point" ? "M130 190 L196 170" : pose === "wave" ? "M130 190 L178 96" : "M130 190 L146 290";
+    return (
+      <>
+        <rect x={72} y={290} width={24} height={130} rx={10} fill={colors.trousers} />
+        <rect x={104} y={290} width={24} height={130} rx={10} fill={colors.trousers} />
+        <rect x={60} y={160} width={80} height={150} rx={26} fill={colors.shirt} />
+        <path d="M70 190 L54 290" stroke={colors.shirt} strokeWidth={22} strokeLinecap="round" />
+        <path d={arm} stroke={colors.shirt} strokeWidth={22} strokeLinecap="round" />
+        <circle cx={100} cy={96} r={58} fill={colors.skin} />
+        <path d="M44 86 Q100 0 156 86 Q100 52 44 86 Z" fill={colors.hair} />
+        {/* eyes: shut for a blink, wide when surprised */}
+        {[82, 122].map((x) => (blink ? <rect key={x} x={x - 7} y={98} width={14} height={3} fill={colors.hair} /> : <circle key={x} cx={x} cy={98} r={expression === "surprised" ? 9 : 6} fill={colors.hair} />))}
+        {/* mouth: opens while talking */}
+        {expression === "happy" ? (
+          <path d={`M82 122 Q102 ${140 + mouth * 10} 122 122`} stroke={colors.hair} strokeWidth={5} fill="none" strokeLinecap="round" />
+        ) : (
+          <ellipse cx={102} cy={128} rx={expression === "surprised" ? 9 : 12} ry={(expression === "surprised" ? 10 : 2) + mouth * 8} fill={colors.hair} />
+        )}
+      </>
+    );
+  },
+});
+```
+
+In a scene:
+
+```tsx
+import { Mia } from "@shared/Mia";
+
+<Mia x={420} y={t.safe.bottom} height={520} pose="point" expression="happy" progress={useCueAppear("mia")} talking />
+```
+
+| Prop | Meaning |
+|---|---|
+| `x`, `y` | Where the feet stand, in frame pixels |
+| `height` | How tall the character is on screen. The width follows; a character is never stretched |
+| `pose`, `expression` | One of the names the character defines. Anything else is a type error |
+| `facing` | `"right"` (as drawn) or `"left"` (mirrored) |
+| `progress` | 0 to 1: the entrance |
+| `talking` | Moves the mouth |
+
+`draw` receives `pose`, `expression`, `colors` (palette keys already resolved), `blink` (true for a few frames every few seconds), `mouth` (0 shut to 1 open) and `frame`. Draw with plain SVG in the character's box, from simple bold shapes. Keep head, body and legs identical across poses and change only what a pose changes, so the character is recognisably the same.
+
+A character file needs no `Demo`: the studio draws `<CharacterSheet character={Mia} />`, every pose and expression with its name, as its preview.
+
+## The hand-drawn look (studio)
+
+When the theme's `look` is `"hand-drawn"`, the studio gives everything a scene draws a slight wobble that changes a few times a second, like a line traced again for each drawing. Captions stay sharp. Scenes need no changes for it: draw as usual, and prefer outlines and flat fills, which carry the effect best.

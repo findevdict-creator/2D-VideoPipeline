@@ -174,6 +174,36 @@ export function setProjectReference(studio: Studio, projectId: string, ref: Proj
   studio.emit("asset.changed", { projectId });
 }
 
+// ---------- References for one scene ----------
+
+export interface SceneReference extends ProjectReference {
+  /** For a video: the moment the person picked, in seconds. Null means the whole clip. */
+  atSec: number | null;
+}
+
+export function listSceneReferences(studio: Studio, sceneId: string): SceneReference[] {
+  return fromRows<SceneReference>(studio.db.all("SELECT asset_id, role, note, at_sec FROM scene_references WHERE scene_id = ? ORDER BY rowid", [sceneId]));
+}
+
+/** Attach a reference to one scene, change it, or take it away again with a null role. */
+export function setSceneReference(studio: Studio, sceneId: string, ref: { assetId: string; role: ProjectReference["role"]; note?: string; atSec?: number | null } | { assetId: string; role: null }) {
+  const scene = studio.db.get<{ project_id: string }>("SELECT project_id FROM scenes WHERE id = ?", [sceneId]);
+  if (!scene) throw new Error(`No scene with the id "${sceneId}"`);
+  if (ref.role === null) {
+    studio.db.run("DELETE FROM scene_references WHERE scene_id = ? AND asset_id = ?", [sceneId, ref.assetId]);
+  } else {
+    const asset = findAsset(studio, scene.project_id, ref.assetId);
+    if (!asset) throw new Error(`No asset with the id "${ref.assetId}" in this project`);
+    if (asset.kind !== "image" && asset.kind !== "video") throw new Error(`"${asset.label}" is not an image or a video, so it cannot be a reference.`);
+    const atSec = asset.kind === "video" && ref.atSec != null ? Math.max(0, Math.min(ref.atSec, asset.durationSec ?? ref.atSec)) : null;
+    studio.db.run(
+      "INSERT INTO scene_references (scene_id, asset_id, role, note, at_sec) VALUES (?, ?, ?, ?, ?) ON CONFLICT (scene_id, asset_id) DO UPDATE SET role = excluded.role, note = excluded.note, at_sec = excluded.at_sec",
+      [sceneId, ref.assetId, ref.role, ref.note ?? "", atSec],
+    );
+  }
+  studio.emit("scene.changed", { projectId: scene.project_id, targetId: sceneId });
+}
+
 function hashFile(file: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const hash = createHash("sha256");

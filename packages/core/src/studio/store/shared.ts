@@ -6,8 +6,11 @@ import { fromRow, fromRows } from "./mapping.js";
 import { getProject, projectPaths } from "./projects.js";
 import { addReview, hashText, setSceneStatus } from "./scenes.js";
 
-/** For now shared assets are React components. Models and characters arrive in later phases. */
-export const SHARED_KINDS = ["component"] as const;
+/**
+ * A shared asset is a React component, or a character: a component made with the library's
+ * defineCharacter, which fixes its proportions, colours, poses and expressions.
+ */
+export const SHARED_KINDS = ["component", "character"] as const;
 export type SharedKind = (typeof SHARED_KINDS)[number];
 export type SharedStatus = "planned" | "needs_review" | "approved";
 
@@ -75,7 +78,7 @@ export function planShared(studio: Studio, projectId: string, items: { name: str
       if (!SHARED_NAME.test(item.name)) throw new Error(`"${item.name}" is not a usable name. Use PascalCase letters and digits, such as CameraBody.`);
       studio.db.run(
         `INSERT INTO shared_assets (id, project_id, name, kind, brief) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT (project_id, name) DO UPDATE SET brief = excluded.brief`,
+         ON CONFLICT (project_id, name) DO UPDATE SET brief = excluded.brief, kind = excluded.kind`,
         [newId("sh"), projectId, item.name, item.kind ?? "component", item.brief],
       );
     }
@@ -91,7 +94,7 @@ export function planShared(studio: Studio, projectId: string, items: { name: str
 export function saveShared(
   studio: Studio,
   projectId: string,
-  input: { name: string; code: string; brief?: string; notes?: string; createdBy: string },
+  input: { name: string; code: string; brief?: string; notes?: string; createdBy: string; kind?: SharedKind },
 ): { asset: SharedAsset; version: SharedAssetVersion; staleScenes: string[] } {
   if (!SHARED_NAME.test(input.name)) throw new Error(`"${input.name}" is not a usable name. Use PascalCase letters and digits, such as CameraBody.`);
   const project = getProject(studio, projectId);
@@ -101,7 +104,7 @@ export function saveShared(
   const versionId = newId("shv");
   studio.db.tx(() => {
     if (!findShared(studio, projectId, input.name)) {
-      studio.db.run("INSERT INTO shared_assets (id, project_id, name, kind, brief) VALUES (?, ?, ?, 'component', ?)", [newId("sh"), projectId, input.name, input.brief ?? ""]);
+      studio.db.run("INSERT INTO shared_assets (id, project_id, name, kind, brief) VALUES (?, ?, ?, ?, ?)", [newId("sh"), projectId, input.name, input.kind ?? "component", input.brief ?? ""]);
     }
     const asset = getShared(studio, projectId, input.name);
     const version = asset.currentVersion + 1;
@@ -132,6 +135,19 @@ export function saveShared(
   studio.emit("shared.changed", { projectId, data: { name: input.name } });
   const asset = getShared(studio, projectId, input.name);
   return { asset, version: fromRow<SharedAssetVersion>(studio.db.get("SELECT * FROM shared_asset_versions WHERE id = ?", [versionId]))!, staleScenes };
+}
+
+/**
+ * The poses and expressions a character's code declares, read from its source. Good
+ * enough to tell people and agents what there is; the code itself is what counts.
+ */
+export function characterInfo(code: string | undefined): { poses: string[]; expressions: string[] } | null {
+  if (!code || !/\bdefineCharacter\s*\(/.test(code)) return null;
+  const list = (key: string) => {
+    const found = new RegExp(`\\b${key}\\s*:\\s*\\[([^\\]]*)\\]`).exec(code)?.[1] ?? "";
+    return [...found.matchAll(/["'`]([^"'`]+)["'`]/g)].map((m) => m[1]!);
+  };
+  return { poses: list("poses"), expressions: list("expressions") };
 }
 
 export function setSharedPreview(studio: Studio, versionId: string, previewPath: string) {

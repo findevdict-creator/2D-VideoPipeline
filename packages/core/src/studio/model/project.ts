@@ -2,6 +2,8 @@ import { z } from "zod";
 
 const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, "must be a hex colour like #1A2B3C");
 
+export const LOOKS = ["clean", "hand-drawn"] as const;
+
 /** The look every scene shares. Scenes read it through useTheme(). */
 export const ThemeSchema = z.object({
   visualStyle: z.string().default("Clean flat vector explainer with soft shapes and clear labels"),
@@ -24,6 +26,8 @@ export const ThemeSchema = z.object({
     }),
   fontFamily: z.string().default("Inter"),
   iconStyle: z.string().default("Rounded line icons, 2px stroke"),
+  /** "hand-drawn" gives everything scenes draw a slight wobble that changes a few times a second. Real footage and Manim scenes keep their own look. */
+  look: z.enum(LOOKS).default("clean"),
 });
 export type Theme = z.infer<typeof ThemeSchema>;
 

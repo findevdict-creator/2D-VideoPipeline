@@ -267,10 +267,32 @@ function PlanTab({ snap }: { snap: Snapshot }) {
           <p className="muted">
             {theme.fontFamily} · {theme.visualStyle}
           </p>
+          <LookSwitch snap={snap} />
         </section>
         <SceneTypes snap={snap} />
       </div>
     </div>
+  );
+}
+
+/** Clean lines, or the slight wobble of something drawn by hand. Changing it puts built scenes out of date, and one action renders them again. */
+function LookSwitch({ snap }: { snap: Snapshot }) {
+  const [busy, act] = useAction();
+  const look = snap.project.settings.theme.look;
+  const drawn = snap.scenes.filter((s) => ["rendered", "needs_review", "approved"].includes(s.status)).length;
+  const change = (next: string) => {
+    if (next === look) return;
+    if (drawn && !confirm(`${drawn} scene${drawn === 1 ? " is" : "s are"} already drawn in the ${look === "hand-drawn" ? "hand-drawn" : "clean"} look. They will be marked out of date; “Render all again” on the Scenes tab redraws them without a Claude run. Change the look?`)) return;
+    void act(() => api.updateSettings(snap.project.slug, { theme: { look: next } }), "Look changed");
+  };
+  return (
+    <label className="small">
+      Lines
+      <select value={look} disabled={busy} onChange={(e) => change(e.target.value)}>
+        <option value="clean">Clean</option>
+        <option value="hand-drawn">Hand-drawn: everything wobbles slightly, like a sketch</option>
+      </select>
+    </label>
   );
 }
 
@@ -321,22 +343,35 @@ function SharedTab({ snap }: { snap: Snapshot }) {
   const [busy, act] = useAction();
   return (
     <>
-      <p className="muted lead">Things that appear in more than one scene are built once, here, before any scene. Every scene then draws them the same way.</p>
+      <p className="muted lead">
+        Things that appear in more than one scene are built once, here, before any scene. Every scene then draws them the same way. A character is built with fixed proportions and colours and a set of poses and expressions; scenes can only place
+        and pose it.
+      </p>
       {!snap.shared.length && <p className="muted">Nothing shared is planned{snap.project.stage === "outline" || snap.project.stage === "bible" ? " yet. The bible decides what recurs." : "."}</p>}
       <div className="grid">
         {snap.shared.map((s) => {
           const preview = s.versions.at(-1)?.previewUrl;
           return (
             <section key={s.id} className="card shared-card">
-              {preview ? <img className="thumb" src={preview} alt={`${s.name} demo`} /> : <div className="thumb thumb-empty">{s.currentVersion ? "No picture" : "Not built yet"}</div>}
+              {preview ? (
+                <a href={preview} target="_blank" rel="noreferrer">
+                  <img className="thumb" src={preview} alt={s.kind === "character" ? `${s.name}: every pose and expression` : `${s.name} demo`} />
+                </a>
+              ) : <div className="thumb thumb-empty">{s.currentVersion ? "No picture" : "Not built yet"}</div>}
               <div className="row wrap centred">
                 <h3>{s.name}</h3>
+                {s.kind === "character" && <Chip>Character</Chip>}
                 <Chip tone={s.status === "approved" ? "good" : s.status === "needs_review" ? "warn" : "quiet"}>
                   {s.status === "approved" ? "Approved" : s.status === "needs_review" ? "Needs your review" : "Planned"}
                 </Chip>
                 {s.currentVersion > 0 && <span className="muted small nowrap">version {s.currentVersion}</span>}
               </div>
               <p>{s.brief}</p>
+              {s.character && (
+                <p className="small">
+                  <span className="muted">Poses:</span> {s.character.poses.join(", ") || "none"} <span className="muted">· Expressions:</span> {s.character.expressions.join(", ") || "none"}
+                </p>
+              )}
               {s.code && (
                 <details>
                   <summary>Code</summary>
@@ -595,6 +630,7 @@ function AssetCard({ asset }: { asset: Asset }) {
   const [note, setNote] = useState(asset.reference?.note ?? "");
   const role = asset.reference?.role ?? "";
   const canBeReference = asset.kind === "image" || asset.kind === "video";
+  const [sheet, setSheet] = useState<string | null>();
   return (
     <section className="card asset-card">
       {asset.kind === "image" && asset.url ? (
@@ -631,9 +667,19 @@ function AssetCard({ asset }: { asset: Asset }) {
           ))}
         </>
       )}
+      {asset.kind === "video" &&
+        (sheet ? (
+          <a href={sheet} target="_blank" rel="noreferrer" title="One frame of each shot. Click to see it large.">
+            <img className="sheet" src={sheet} alt={`Keyframes of ${asset.label}`} />
+          </a>
+        ) : (
+          <button className="link small" disabled={busy} onClick={() => act(async () => setSheet((await api.keyframes(asset.id)).sheetUrl))}>
+            {busy ? "Finding the shots…" : "Show one frame of each shot"}
+          </button>
+        ))}
       {canBeReference && (
         <label className="small">
-          Use as a reference for
+          Use as a reference for the whole video:
           <select value={role} disabled={busy} onChange={(e) => act(() => api.editAsset(asset.id, { reference: { role: e.target.value || null, note } }))}>
             <option value="">nothing</option>
             <option value="style">style</option>

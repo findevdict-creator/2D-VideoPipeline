@@ -111,3 +111,34 @@ export async function shareOfPixels(ffmpeg: (args: string[]) => Promise<unknown>
   for (let i = 0; i + 2 < raw.length; i += 3) if (test(raw[i]!, raw[i + 1]!, raw[i + 2]!)) hits++;
   return hits / (raw.length / 3);
 }
+
+/**
+ * A video made of plain-coloured shots with hard cuts between them, and a white bar that
+ * slides across each one so the picture is never quite still. For telling shots apart.
+ */
+export async function writeShotsVideo(
+  ffmpeg: (args: string[]) => Promise<unknown>,
+  file: string,
+  shots: { colour: [number, number, number]; sec: number }[],
+  opts: { width?: number; height?: number; fps?: number } = {},
+) {
+  const { width = 320, height = 180, fps = 30 } = opts;
+  const dir = `${file}.frames`;
+  fs.mkdirSync(dir, { recursive: true });
+  let n = 0;
+  for (const shot of shots) {
+    const frames = Math.round(shot.sec * fps);
+    for (let f = 0; f < frames; f++) {
+      const x0 = Math.round((f / frames) * (width - 40));
+      writePng(`${dir}/f${String(n++).padStart(5, "0")}.png`, width, height, (x, y) => (y >= height / 3 && y < (2 * height) / 3 && x >= x0 && x < x0 + 20 ? [255, 255, 255] : shot.colour));
+    }
+  }
+  await ffmpeg(["-y", "-framerate", String(fps), "-i", `${dir}/f%05d.png`, "-c:v", "libx264", "-pix_fmt", "yuv420p", file]);
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/** The size a PNG file says it has. */
+export function pngSize(file: string): { width: number; height: number } {
+  const head = fs.readFileSync(file).subarray(0, 24);
+  return { width: head.readUInt32BE(16), height: head.readUInt32BE(20) };
+}

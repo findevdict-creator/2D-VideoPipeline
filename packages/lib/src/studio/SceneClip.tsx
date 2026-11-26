@@ -5,6 +5,7 @@ import { SceneProvider, VideoProvider } from "../context";
 import type { VideoData } from "../types";
 import { MissingScene, SceneShell } from "../Video";
 import { FootageScene } from "./FootageScene";
+import { HandDrawn } from "./HandDrawn";
 import { IllustrationScene } from "./IllustrationScene";
 import { Overlays } from "./Overlays";
 
@@ -17,14 +18,17 @@ export const SceneClip: React.FC<{ data: VideoData; Component?: React.ComponentT
   if (!scene) return null;
   const body =
     scene.kind === "illustration" ? <IllustrationScene /> : scene.kind === "footage" ? <FootageScene /> : Component ? <Component /> : <MissingScene id={scene.id} />;
+  const shell = (
+    <SceneShell scene={scene} overlay={<Overlays />}>
+      {body}
+    </SceneShell>
+  );
+  // Real footage keeps its own look; everything drawn takes the video's.
+  const sketched = data.style.look === "hand-drawn" && scene.kind !== "footage";
   return (
     <VideoProvider data={data}>
-      <AbsoluteFill>
-        <SceneProvider scene={scene}>
-          <SceneShell scene={scene} overlay={<Overlays />}>
-            {body}
-          </SceneShell>
-        </SceneProvider>
+      <AbsoluteFill style={{ backgroundColor: data.style.palette.background }}>
+        <SceneProvider scene={scene}>{sketched ? <HandDrawn>{shell}</HandDrawn> : shell}</SceneProvider>
         <Captions />
       </AbsoluteFill>
     </VideoProvider>
