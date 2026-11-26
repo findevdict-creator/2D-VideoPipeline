@@ -33,6 +33,8 @@ export type Theme = z.infer<typeof ThemeSchema>;
 
 export const ASPECTS = ["16:9", "9:16", "1:1"] as const;
 export const MAX_DURATION_SEC = 3600;
+/** The shortest video a project can be for. */
+export const MIN_DURATION_SEC = 10;
 
 export const PROJECT_STAGES = ["outline", "bible", "foundation", "chapters", "scenes", "assembly", "done"] as const;
 export type ProjectStage = (typeof PROJECT_STAGES)[number];
@@ -71,7 +73,7 @@ export const NewProjectSchema = z.object({
   title: z.string().min(2).max(120).optional(),
   description: z.string().min(10, "Describe the video in at least a sentence"),
   aspect: z.enum(ASPECTS).default("16:9"),
-  targetDurationSec: z.number().int().min(10).max(MAX_DURATION_SEC).default(180),
+  targetDurationSec: z.number().int().min(MIN_DURATION_SEC, `A video is at least ${MIN_DURATION_SEC} seconds long`).max(MAX_DURATION_SEC, `A video is at most ${MAX_DURATION_SEC / 60} minutes long`).default(180),
   fps: z.number().int().min(12).max(60).optional(),
   settings: ProjectSettingsSchema.partial().optional(),
 });

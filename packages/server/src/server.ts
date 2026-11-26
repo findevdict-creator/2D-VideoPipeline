@@ -23,6 +23,7 @@ import { getScene, rollbackScene, setTheme, updatePlan } from "@studio/core/stud
 import { closeSharedRequest } from "@studio/core/studio/store/shared";
 import { Orchestrator } from "@studio/core/studio/workflow";
 import { exportFormat, MAX_ZOOM } from "@studio/core/studio/export";
+import { recommendLength } from "@studio/core/studio/length";
 import { assetKeyframes, projectList, projectSnapshot, sceneComparison, sceneDetail } from "./snapshot.js";
 
 const WEB_DIR = path.join(REPO_ROOT, "packages", "web");
@@ -70,6 +71,14 @@ export async function startServer(studio: Studio, opts: { port?: number; orchest
     const project = createProject(studio, parsed.data);
     o.startStage(project.id);
     return { slug: project.slug };
+  });
+  // Asked before a project exists: Claude suggests a length, and the person accepts or changes it in the form.
+  route("POST", "/api/recommend-length", async ({ body }) => {
+    try {
+      return await recommendLength(studio, typeof body?.description === "string" ? body.description : "");
+    } catch (err) {
+      throw new Refused((err as Error).message);
+    }
   });
   route("GET", "/api/projects/:project", ({ params }) => projectSnapshot(studio, o, params.project!));
   route("PATCH", "/api/projects/:project", ({ params, body }) => {

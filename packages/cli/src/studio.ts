@@ -15,15 +15,17 @@ import { REFERENCE_ROLES } from "@studio/core/studio/model/asset";
 import type { ModelInfo } from "@studio/core/studio/assets/gltf";
 import { importAsset, listAssets, listProjectReferences, setProjectReference, setSceneReference } from "@studio/core/studio/store/assets";
 import { clock, referenceKeyframes } from "@studio/core/studio/assets/keyframes";
-import { LOOKS } from "@studio/core/studio/model/project";
+import { LOOKS, MAX_DURATION_SEC, MIN_DURATION_SEC } from "@studio/core/studio/model/project";
 import { assemble } from "@studio/core/studio/assemble";
+import { recommendLength } from "@studio/core/studio/length";
 import { checkScene, renderSceneClip, renderSceneStills } from "@studio/core/studio/scenes/render";
 
 const HELP = `Scene studio
 
 Usage:
   npm run studio                                     open the studio in your browser (--port, --no-open)
-  npm run studio -- new "<description>"              start a project (--minutes or --seconds for its length, --title)
+  npm run studio -- new "<description>"              start a project (--minutes or --seconds for any length from 10 seconds to 60 minutes, --title)
+  npm run studio -- length "<description>"           ask Claude how long a video with this description should be
   npm run studio -- status <project>                 where the project stands and what it is waiting on
   npm run studio -- start <project>                  run the current stage's work (--notes to ask for changes)
   npm run studio -- approve <project>                approve the current stage and start the next one
@@ -122,10 +124,22 @@ async function run(
 ) {
   const log = (message: string) => console.log(message);
   const quality = flags.final ? "final" : "preview";
+  if (command === "length") {
+    const description = required(rest[0], "description");
+    console.log("Asking Claude for a length...");
+    const advice = await recommendLength(studio, description);
+    console.log(`Claude recommends ${readable(advice.seconds)}. ${advice.reason}`);
+    console.log(`To start with it: npm run studio -- new ${JSON.stringify(description)} --seconds ${advice.seconds}`);
+    return;
+  }
   if (command === "new") {
-    const seconds = flags.seconds ? Number(flags.seconds) : flags.minutes ? Math.round(Number(flags.minutes) * 60) : undefined;
+    // --minutes and --seconds add up, so 7 and a half minutes is "--minutes 7 --seconds 30" or "--minutes 7.5".
+    const seconds = flags.seconds || flags.minutes ? Math.round(Number(flags.minutes ?? 0) * 60 + Number(flags.seconds ?? 0)) : undefined;
+    if (seconds !== undefined && !(seconds >= MIN_DURATION_SEC && seconds <= MAX_DURATION_SEC)) {
+      throw new Error(`A video is between ${MIN_DURATION_SEC} seconds and ${MAX_DURATION_SEC / 60} minutes long. Give --minutes, --seconds or both as numbers.`);
+    }
     const project = createProject(studio, { description: required(rest[0], "description"), title: flags.title, targetDurationSec: seconds });
-    console.log(`Created project ${project.slug} ("${project.title}", ${project.targetDurationSec}s).\nNext: npm run studio -- start ${project.slug}`);
+    console.log(`Created project ${project.slug} ("${project.title}", ${readable(project.targetDurationSec)}).\nNext: npm run studio -- start ${project.slug}`);
     return;
   }
   if (command === "status") {
@@ -474,6 +488,14 @@ function assetNamed(studio: Studio, projectId: string, name: string) {
   const found = all.find((a) => a.id === name) ?? (all.filter((a) => a.label === name).length === 1 ? all.find((a) => a.label === name) : undefined);
   if (!found) throw new Error(`There is no asset "${name}" in this project. List them with: npm run studio -- assets <project>`);
   return found;
+}
+
+/** A length as a person says it: "45 seconds", "7 minutes", "7 minutes 30 seconds". */
+function readable(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  const part = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"}`;
+  return [m ? part(m, "minute") : "", s || !m ? part(s, "second") : ""].filter(Boolean).join(" ");
 }
 
 function required(value: string | undefined, what: string): string {
