@@ -4,14 +4,14 @@ import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ScriptedApprover } from "../src/approval.js";
-import { loadConfig } from "../src/config.js";
-import type { StageContext } from "../src/context.js";
-import { runPipeline } from "../src/pipeline.js";
-import { Production } from "../src/production.js";
-import { MockRunner, MOCK_SCRIPT, MOCK_STORYBOARD } from "../src/runners/mock.js";
-import { checkStoryboard } from "../src/stages/files.js";
-import { PREPRODUCTION_STAGES } from "../src/stages/index.js";
+import { ScriptedApprover } from "../packages/core/src/approval.js";
+import { loadConfig } from "../packages/core/src/config.js";
+import type { StageContext } from "../packages/core/src/context.js";
+import { runPipeline } from "../packages/core/src/pipeline.js";
+import { Production } from "../packages/core/src/production.js";
+import { MockRunner, MOCK_SCRIPT, MOCK_STORYBOARD } from "../packages/core/src/runners/mock.js";
+import { checkStoryboard } from "../packages/core/src/stages/files.js";
+import { PREPRODUCTION_STAGES } from "../packages/core/src/stages/index.js";
 
 async function setup() {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "pipeline-test-"));

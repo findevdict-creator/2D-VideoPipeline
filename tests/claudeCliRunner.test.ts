@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { ClaudeCliRunner, quoteForCmd } from "../src/runners/claudeCli.js";
+import { ClaudeCliRunner, quoteForCmd } from "../packages/core/src/runners/claudeCli.js";
 
 /** A stand-in `claude` executable that records how it was called. */
 async function fakeClaude(dir: string, response: object, exitCode = 0) {

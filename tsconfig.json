@@ -20,7 +20,10 @@
     ]
   },
   "include": [
-    "src",
+    "packages/core/src",
+    "packages/cli/src",
+    "packages/mcp/src",
+    "packages/server/src",
     "tests"
   ]
 }
