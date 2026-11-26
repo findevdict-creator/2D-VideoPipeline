@@ -1,10 +1,187 @@
 # 2D Video Pipeline
 
-An automated pipeline that turns a prompt into a 2D animated explainer video, with a team of AI agents doing the work and a human approving each stage.
+A studio for making explainer videos scene by scene. You describe the video. Claude plans it, builds every scene as its own small animation, and you review each scene by itself: approve it, or say what should change and only that scene is rebuilt.
 
-**Status:** The explainer pipeline is complete from prompt to final MP4: pre-production, voiceover (Kokoro), animation and render (Remotion).
+**Status:** Phase 1 of the scene studio is complete: projects, a local database, per-scene clips, your own images and video clips, an MCP server that Claude works through, parallel scene building, and a GUI. 3D scenes, Blender models and Manim come next (see [Roadmap](#roadmap)). The original command-line pipeline still works and is described [further down](#the-original-pipeline).
 
-## How it works
+## Quick start
+
+You need Node 22 or later, and [Claude Code](https://code.claude.com) installed and signed in (`claude` on your PATH).
+
+```bash
+npm install
+npm run setup:voice     # once: installs Kokoro for the narration
+npm run studio          # opens the studio at http://localhost:4600
+```
+
+To try the whole thing without calling Claude or installing a voice, use the stand-in runner. It writes a fixed sample plan and simple scenes, with silent narration:
+
+```bash
+npm run studio -- --runner mock
+```
+
+`setup:voice` needs Python 3.10, 3.11 or 3.12 (Kokoro does not support 3.13 yet). It creates a private environment in `.venv-voice/`, installs Kokoro, and makes a test clip. The first run downloads the Kokoro model, about 330 MB. If the test clip fails on Windows, install [espeak-ng](https://github.com/espeak-ng/espeak-ng/releases) (the `.msi`) and run it again.
+
+On Windows, check that `claude --version` prints a version in the same terminal. If Claude Code is installed but not on your PATH, set `CLAUDE_BIN` to its full path, for example `$env:CLAUDE_BIN = "C:\Users\you\.local\bin\claude.exe"` in PowerShell.
+
+## How a video is made
+
+A project moves through six stages. Claude does the work of a stage, then the studio stops and waits for you. Nothing moves on until you approve it, and at every stage you can ask for changes instead.
+
+| Stage | What Claude does | What you review |
+|---|---|---|
+| 1. Outline | Splits your description into chapters, each with a length | The outline and the chapter list |
+| 2. Bible | Writes the rules every scene follows: voice, look, colours, motion, and the things that recur | The bible and the colour theme |
+| 3. Shared parts | Builds each recurring thing once as a component, with a preview picture | Each component |
+| 4. Scene list | Writes the scenes of each chapter: narration, what the viewer sees, and the scene's type | The scenes. You can edit a scene's narration, idea or type by hand |
+| 5. Scenes | Records the narration, then builds every scene, several at a time. Each scene is checked, test-rendered, and rendered to its own clip | Each scene, one by one |
+| 6. Video | Joins the approved clips with the narration, and writes subtitles | The finished video |
+
+Shared parts come before any scene on purpose. A camera, a character or a recurring diagram is drawn once, so ten scenes built at the same time all show the same camera.
+
+### Reviewing a scene
+
+Open a scene to watch its clip with the narration, look at its test frames, read what Claude says it built, and see when each element is cued to the voice. Then:
+
+- **Approve this scene.** Its files are locked, so nothing can change an approved scene behind your back.
+- **Ask for changes.** Describe them in your own words. Claude continues the same session that built the scene, so it remembers what it did, and writes a new version. Only that scene is built and rendered again. Every earlier version is kept, and you can go back to one with a click.
+
+Because each scene has its own clip, joining the video takes seconds. Changing one scene of a long video costs one scene's build and render, not the whole video's.
+
+### Scene types
+
+Each scene has a type, which decides how it is made.
+
+| Type | What it is | Status |
+|---|---|---|
+| `remotion-2d` | A 2D animation written as code with [Remotion](https://www.remotion.dev) and the library in [`packages/lib/`](packages/lib/): shapes, icons, labels and motion timed to the narration | Ready |
+| `illustration` | One or more of your images with a slow camera move, and labels and arrows that appear on cue | Ready |
+| `footage` | One of your video clips, fitted to the narration by trimming, holding the last frame, slowing down or looping, with labels on top | Ready |
+| `r3f` | A 3D scene written as code with react-three-fiber, which can load models made in Blender | Phase 2 |
+| `manim` | Mathematical animation with Manim | Phase 2 |
+
+### Your own files, and references
+
+Under **Assets**, drop in images, video clips and sounds. Claude can see them and use them in `illustration` and `footage` scenes, so a scene that is hard to draw in code can use a clip you made elsewhere, including an AI-generated one.
+
+Any image or clip can also be marked as a **reference** for style, layout or motion, with a note on what to take from it. A reference is a direction, not a target: Claude looks at it and follows the note, and does not try to reproduce it.
+
+## How Claude works on a project
+
+Each piece of work is one Claude Code session, started in the background with `claude -p`. The session gets a role (planner, art director, foundation builder, scriptwriter or scene builder), a task, and a connection to the studio's **MCP server** in [`packages/mcp/`](packages/mcp/). Everything Claude does to a project goes through that server's tools.
+
+| Tools | Who may call them |
+|---|---|
+| `project_get`, `document_read`, `scene_list`, `scene_get`, `asset_list`, `asset_view`, `shared_list`, `shared_get` | Every run. They only read |
+| `document_save`, `chapters_propose` | The outline run |
+| `document_save`, `theme_set`, `shared_plan` | The bible run |
+| `shared_save` | The shared parts run |
+| `scenes_propose` | A scene list run, for its own chapter |
+| `scene_save_spec`, `scene_check`, `scene_stills`, `scene_submit`, `shared_request` | A scene run, for its own scene |
+
+The server is started for one run and knows which run it serves, so a scene run can change its own scene and nothing else. There is no tool that approves, deletes, or runs a command. A scene run may also read files, and edit the ones in its own scene folder.
+
+A scene run saves its plan, writes the scene file, and calls `scene_check` until the source rules and the type checker pass. Then it renders test frames with `scene_stills`, looks at them, fixes what it sees, and hands over with `scene_submit`. If a scene needs something that should be shared, it files a `shared_request` for you instead of drawing a private copy.
+
+### Speed
+
+- **Scenes are built in parallel.** Three Claude runs and two renders at a time by default (`studio.lanes` in the settings). More is faster and uses your plan faster.
+- **Nothing is done twice.** A scene's narration is recorded again only if its text or the voice settings change. A clip is rendered again only if the scene, its timing, the theme or a shared part it imports changes.
+- **A changed shared part marks exactly the scenes that use it as out of date**, and they are rendered again when you ask.
+
+## Command line
+
+Everything the GUI does is also a command, which is useful for scripts.
+
+```bash
+npm run studio -- new "How noise-cancelling headphones work" --minutes 3
+npm run studio -- status <project>          # where it stands and what it waits on
+npm run studio -- approve <project>         # approve the current stage and start the next
+npm run studio -- start <project> --notes "Open with the hum on a plane"   # ask for changes to the current stage
+npm run studio -- scenes <project>
+npm run studio -- revise <project> 1.3 --notes "Make the label larger"
+npm run studio -- approve-scene <project> all
+npm run studio -- assemble <project> --final
+npm run studio -- asset add <project> photo.png --reference style --note "the colours, not the people"
+npm run studio -- import examples/how-gps-works     # bring a pipeline production in as a project
+npm run studio -- --help
+```
+
+A scene is named by its label, such as `1.3`, or by its id.
+
+## Where things are kept
+
+Projects live in a **workspace** folder outside the repository: `~/VideoStudio` by default, or `--workspace`, `STUDIO_WORKSPACE`, or `studio.workspace` in the settings.
+
+```
+<workspace>/
+  studio.db                      SQLite: projects, chapters, scenes and their versions, assets, runs, reviews, clips, renders
+  projects/<project>/
+    assets/                      your images, clips and sounds, stored once by content
+    shared/components/           the current shared parts, imported by scenes as "@shared/<Name>"
+    shared/versions/, previews/  every saved version of each shared part, and its preview picture
+    voice/<scene>/               the narration, one file per wording
+    scenes/<scene>/v1/, v2/ ...  one folder per version: spec.json, scene.tsx, stills/, clip-*.mp4, review-*.mp4
+    renders/                     assembled videos and their .srt subtitles
+    runs/                        the log of every Claude run
+```
+
+The database is the record of what exists and what state it is in. The files are the things themselves, so you can open any scene file or clip directly.
+
+The GUI's server listens on your own computer only (`127.0.0.1`) and refuses requests that come from other websites.
+
+### Studio settings
+
+In [`pipeline.config.json`](pipeline.config.json), under `studio`. The voice and render settings described below apply to the studio too.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `studio.workspace` | `~/VideoStudio` | Where the database and projects live |
+| `studio.port` | `4600` | Port of the GUI. Also `--port` or `STUDIO_PORT` |
+| `studio.lanes.agents` | `3` | Claude runs at the same time |
+| `studio.lanes.renders` | `2` | Scene renders at the same time. Each one runs a browser, so memory is the limit |
+| `studio.lanes.light` | `1` | Short jobs, such as recording narration and joining clips |
+| `runner` | `claude-cli` | `mock` writes fixed samples instead of calling Claude. Also `--runner` or `PIPELINE_RUNNER` |
+| `model` | `opus` | Model for every run. Also `--model` or `PIPELINE_MODEL` |
+
+## Development
+
+```bash
+npm test            # the studio and the original pipeline
+npm run typecheck   # the studio, the Remotion library and the GUI
+```
+
+Tests that render real video run only when `REMOTION_BROWSER_EXECUTABLE` points to a Chrome:
+
+```bash
+REMOTION_BROWSER_EXECUTABLE=/path/to/chrome npm test
+```
+
+Code map:
+
+- `packages/core/src/studio/`: the studio. `db/` and `store/` hold the database and everything kept in it, `model/` the scene format, `renderers/` and `scenes/` turn a scene into stills and a clip, `assemble.ts` joins clips, `tools/` are the tools Claude calls, `runs/` starts Claude and holds the prompts, and `workflow.ts` runs the stages, the queue and the approvals
+- `packages/mcp/`: the MCP server that gives a Claude run its tools
+- `packages/server/`: the local server behind the GUI
+- `packages/web/`: the GUI, a React app that the server bundles when it starts
+- `packages/cli/`: the `studio` and `pipeline` commands
+- `packages/lib/`: the Remotion library scenes are written with, and its manual
+- `packages/core/src/` outside `studio/`: the original pipeline, and the voice and render code both share
+
+## Roadmap
+
+1. **Scene studio** (done): projects and database, per-scene clips, images and footage, MCP server, shared parts, parallel scene runs, GUI
+2. **More ways to make a scene**: 3D scenes with react-three-fiber, models from Blender as glTF, and Manim
+3. **Long videos**: chapters that are planned and assembled one at a time, and a queue that copes with hundreds of scenes
+4. **Consistency and sound**: stronger use of references and recurring characters, sound effects and music
+5. **Finishing**: comparing versions side by side, and export options
+
+Remotion is free for individuals and companies of up to three people. Larger companies need a [Remotion company license](https://www.remotion.dev/license).
+
+## The original pipeline
+
+The pipeline the studio grew out of is still here. It makes a whole video in one pass from the command line, with a fixed team of agents and an approval after each stage, and keeps everything in a production folder inside the repository. The studio reuses its voice and render code, and `npm run studio -- import <production-folder>` turns a finished production into a studio project.
+
+### How it works
 
 ```
 prompt ─▶ Brief ─▶ [you approve] ─▶ Research + Script ─▶ [you approve] ─▶ Storyboard ─▶ [you approve]
@@ -33,7 +210,7 @@ The pipeline code runs the stages in a fixed order and stops at every approval. 
 
 Every file is validated against a schema in [`packages/core/src/schemas.ts`](packages/core/src/schemas.ts). If an agent writes an invalid file, it gets the errors and is asked to fix it. The storyboard is also checked against the script: the scene ids must match, and every animation cue must be a phrase the narrator actually says, so the visuals can be timed to the voice in a later phase.
 
-## Voiceover
+### Voiceover and voice settings
 
 After you approve the storyboard, the Voiceover stage records the narration with [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M), a free text-to-speech model that runs on your own computer. No AI agent is involved, so it costs nothing.
 
@@ -41,9 +218,16 @@ After you approve the storyboard, the Voiceover stage records the narration with
 2. **One audio file per scene.** `voice/s01.wav`, `voice/s02.wav` and so on, each with a short pause before and after, plus `voice/full.wav` with every scene joined so you can listen to the whole video.
 3. **Timings.** `voiceover.json` records each scene's real length and when every word is spoken, and finds when each storyboard cue phrase is said. The animation stage uses this to sync visuals to the voice. A cue that cannot be found in the spoken words gets an estimated time, and the review lists it.
 
+To pick a voice by ear:
+
+```bash
+npm run pipeline -- voices                       # writes voice-auditions/<voice>.wav for each audition voice
+npm run pipeline -- voices --text "Your own sentence"
+```
+
 At the review you see each scene's real length next to the script's estimate. To change something, edit and choose **e**: the voice or pace for this video in `brief.json`, base speed and pauses in `pipeline.config.json`, respellings in `pronunciations.json`, or wording in `script.json`. Or choose **r** and describe wording changes; the Scriptwriter edits only those scenes. Only scenes whose text or voice settings changed are recorded again, and if the new wording breaks a storyboard cue, the Storyboard artist updates it.
 
-### Settings
+#### Settings
 
 All settings live in [`pipeline.config.json`](pipeline.config.json). The voice and pace in a video's `brief.json` override the defaults for that video.
 
@@ -63,7 +247,7 @@ All settings live in [`pipeline.config.json`](pipeline.config.json). The voice a
 
 The file also holds `runner`, `model` and `maxDirectorRounds`. Environment variables (`PIPELINE_RUNNER`, `PIPELINE_MODEL`, `PIPELINE_PYTHON`, `PIPELINE_VOICE_ENGINE`) and command-line flags override the file. `PIPELINE_CONFIG` points to a different config file.
 
-## Animation and render
+### Animation and render
 
 The video is made with [Remotion](https://www.remotion.dev): every scene is a small React component that draws flat 2D motion graphics (shapes, icons, diagrams, labels) frame by frame. The pipeline puts the scenes in order, plays each scene's narration, applies the storyboard's entrance transitions and camera moves, and burns in captions.
 
@@ -89,9 +273,7 @@ npm run pipeline -- studio <production-id>
 
 The first render downloads a headless Chrome for Remotion (about 100 MB). To use a Chrome you already have, set `render.browserExecutable` or `REMOTION_BROWSER_EXECUTABLE`.
 
-Remotion is free for individuals and companies of up to three people. Larger companies need a [Remotion company license](https://www.remotion.dev/license).
-
-### Render settings
+#### Render settings
 
 | Setting | Default | What it does |
 |---|---|---|
@@ -113,7 +295,7 @@ Remotion is free for individuals and companies of up to three people. Larger com
 | `animator.stillsPerScene` | `3` | Test frames per scene for each check |
 | `animator.parallelScenes` | `1` | Scenes animated at the same time. Faster, but uses your plan faster |
 
-## Running agents: three runners
+### Running agents: three runners
 
 Each agent is a Claude Code session with its own role, tools and task. How those sessions run is a setting:
 
@@ -125,27 +307,7 @@ Each agent is a Claude Code session with its own role, tools and task. How those
 
 Choose with `--runner <name>` or the `PIPELINE_RUNNER` environment variable. Agents use the `opus` model by default; change it with `--model sonnet` or `PIPELINE_MODEL`.
 
-## Setup
-
-You need Node 20 or later, and for the default runner, [Claude Code](https://code.claude.com) installed and signed in (`claude` on your PATH).
-
-```bash
-npm install
-npm run setup:voice     # once: installs Kokoro for the voiceover
-```
-
-`setup:voice` needs Python 3.10, 3.11 or 3.12 (Kokoro does not support 3.13 yet). It creates a private environment in `.venv-voice/`, installs Kokoro, and makes a test clip. The first run downloads the Kokoro model, about 330 MB. If the test clip fails on Windows, install [espeak-ng](https://github.com/espeak-ng/espeak-ng/releases) (the `.msi`) and run it again.
-
-Then pick a voice by ear:
-
-```bash
-npm run pipeline -- voices                       # writes voice-auditions/<voice>.wav for each audition voice
-npm run pipeline -- voices --text "Your own sentence"
-```
-
-On Windows, check that `claude --version` prints a version in the same terminal (PowerShell or Command Prompt). If Claude Code is installed but not on your PATH, point the pipeline at it, for example `$env:CLAUDE_BIN = "C:\Users\you\.local\bin\claude.exe"` in PowerShell.
-
-## Usage
+### Usage
 
 ```bash
 # Start a new video
@@ -172,13 +334,13 @@ At each review you see a summary and the file paths, and choose:
 - **e**: edit the files yourself, then press Enter. Your edits are validated
 - **q**: stop here and resume later with `run <id>`
 
-## Example output
+### Example output
 
 [`examples/how-gps-works/`](examples/how-gps-works/) holds a real pre-production run, made with the `claude-cli` runner and Opus from the prompt "Make an explainer video on how GPS works". It has the brief, research, a 7-scene script (about 79 seconds), the storyboard and the Director's reviews. The Director sent the storyboard back once, and the Storyboard artist fixed 3 scenes. The run took 8 agent runs, about 8 minutes, and Claude Code reported an equivalent API cost of about $2.
 
 `examples/how-gps-works/scenes/` holds the Animator's 7 scenes for that storyboard, from a real run with Opus (the voice was a silent stand-in, because Kokoro could not be installed where it ran). With 4 scenes at a time, the animation stage took about 15 minutes and 21 agent runs, and Claude Code reported an equivalent API cost of about $10. The checks caught type errors in 3 scenes, and the Animator's look at its test frames led it to fix 3 more: faint signal rings, a dot cut off by the phone screen, and a tilted map leaving the safe area. `animation-status.json` has its notes.
 
-## Production folder
+### Production folder
 
 ```
 productions/<id>/
@@ -198,34 +360,3 @@ productions/<id>/
   logs/              one record per agent run, with its prompt, reply and reported cost
   state.json         which stages are approved
 ```
-
-## Development
-
-```bash
-npm test            # pipeline flow, revisions, pause and resume, validation, claude-cli runner, voiceover, animation
-npm run typecheck   # the pipeline and the Remotion library
-```
-
-The test that renders a full video runs only when `REMOTION_BROWSER_EXECUTABLE` points to a Chrome:
-
-```bash
-REMOTION_BROWSER_EXECUTABLE=/path/to/chrome npm test
-```
-
-Code map:
-
-- `packages/core/src/agents/definitions.ts`: each agent's role, rules and tools
-- `packages/core/src/stages/`: what each stage asks its agents to do, how it is summarised for review, and the Director review loop
-- `packages/core/src/pipeline.ts`: runs stages in order with approvals, revisions, and pause and resume
-- `packages/core/src/runners/`: the three ways to run an agent
-- `packages/core/src/schemas.ts`: the file formats shared between agents
-- `packages/core/src/voice/` and `python/kokoro/kokoro_tts.py`: respellings, cue timing, and the bridge to Kokoro
-- `packages/lib/`: the shared Remotion library and the Animator's manual
-- `packages/core/src/render/`: builds each production's Remotion project, checks scenes, runs the Animator's check-and-fix loop, and renders
-
-## Roadmap
-
-1. **Pre-production** (done): prompt to approved storyboard
-2. **Voiceover** (done): Kokoro text-to-speech per scene; real audio lengths set scene durations
-3. **Animation and render** (done): an Animator agent writes each scene in Remotion, test-renders and fixes it; preview, captions and final MP4
-4. **Next**: explainers built around your own images, then episodic cartoon series

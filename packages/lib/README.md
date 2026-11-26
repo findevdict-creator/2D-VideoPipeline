@@ -1,6 +1,6 @@
 # Pipeline Remotion library
 
-Each scene of a video is one file, `productions/<id>/scenes/sNN.tsx`, that default-exports a React component. The pipeline puts it inside a `<Sequence>` for the scene, plays the scene's narration, applies the storyboard's entrance transition and camera move, and draws captions on top. **A scene only draws its own visuals.**
+Each scene of a video is one file that default-exports a React component. In the studio it is `scene.tsx` in the scene's own folder; in the original pipeline it is `productions/<id>/scenes/sNN.tsx`. Whatever renders it puts it inside a `<Sequence>` for the scene, applies the entrance transition and camera move, and draws captions on top. **A scene only draws its own visuals.**
 
 `useCurrentFrame()` inside a scene counts from 0 at the scene's first frame.
 
@@ -28,10 +28,10 @@ A complete example: [`packages/lib/examples/ExampleScene.tsx`](examples/ExampleS
 
 ## Rules
 
-- Import only from `"@pipeline/lib"`, `"remotion"` and `"react"`. No images, fonts or files from the internet.
+- Import only from `"@pipeline/lib"`, `"remotion"` and `"react"`, and in the studio from `"@shared/<Name>"` for the project's shared parts. No images, fonts or files from the internet.
 - Drive every animation from `useCurrentFrame()` (directly, or through the helpers below) with `interpolate()`. CSS `transition`, `animation` and `@keyframes` do not render.
 - No `Math.random()`: use `random("seed")` from `remotion` so every render is identical.
-- Time each storyboard animation to its cue with `useCueFrame(elementId)` or `useCueAppear(elementId)`. The element ids are the storyboard's.
+- Time each animation to its cue with `useCueFrame(elementId)` or `useCueAppear(elementId)`. The element ids are the cue ids in the scene's spec (in the original pipeline, the storyboard's element ids).
 - Stay inside `useTheme().safe` (5% margins, and the bottom strip is kept clear for captions).
 - Text at least 36 px tall, and short: a few words, not narration sentences.
 - Scenes are type-checked with TypeScript `strict` and `noUncheckedIndexedAccess`: indexing an array (`items[i]`, `scene.cues[0]`) gives a value that may be `undefined`, so handle that (`?.`, `??`, or a guard).
@@ -76,3 +76,13 @@ SVG (inside `<Canvas>`, which uses the video's pixel coordinates):
 | `<PulseRings cx cy maxRadius? count? periodSec? fromFrame? untilFrame? color?>` | Expanding signal rings |
 
 You can also draw any SVG (`<rect>`, `<path>`, `<text>`, gradients) inside `<Canvas>`, and any HTML with inline styles.
+
+## Shared parts (studio)
+
+A project's shared parts are components built once, before any scene, and imported by name:
+
+```tsx
+import { CameraBody } from "@shared/CameraBody";
+```
+
+A shared part follows the same rules as a scene. Its file exports the component by name, and also exports a `Demo` component that shows it with typical props, which the studio renders as the part's preview picture. A scene must not redraw something that exists as a shared part: use `shared_list` to see what there is, and `shared_request` to ask for one that is missing.

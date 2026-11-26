@@ -1,10 +1,13 @@
+import { spawn } from "node:child_process";
 import { parseArgs } from "node:util";
 import { loadConfig, type RunnerKind } from "@studio/core/config";
 import { importProduction } from "@studio/core/studio/importProduction";
 import { Studio } from "@studio/core/studio/studio";
 import { listChapters } from "@studio/core/studio/store/chapters";
-import { getProject, listProjects } from "@studio/core/studio/store/projects";
-import { findScene, listScenes, sceneLabel } from "@studio/core/studio/store/scenes";
+import { createProject, getProject, listProjects } from "@studio/core/studio/store/projects";
+import { listRuns, readRunLog } from "@studio/core/studio/store/runs";
+import { Orchestrator } from "@studio/core/studio/workflow";
+import { findScene, getScene, listScenes, sceneLabel } from "@studio/core/studio/store/scenes";
 import { ensureVoice } from "@studio/core/studio/voice";
 import { REFERENCE_ROLES } from "@studio/core/studio/model/asset";
 import { importAsset, listAssets, listProjectReferences, setProjectReference } from "@studio/core/studio/store/assets";
@@ -14,6 +17,13 @@ import { checkScene, renderSceneClip, renderSceneStills } from "@studio/core/stu
 const HELP = `Scene studio
 
 Usage:
+  npm run studio                                     open the studio in your browser (--port, --no-open)
+  npm run studio -- new "<description>"              start a project (--minutes or --seconds for its length, --title)
+  npm run studio -- status <project>                 where the project stands and what it is waiting on
+  npm run studio -- start <project>                  run the current stage's work (--notes to ask for changes)
+  npm run studio -- approve <project>                approve the current stage and start the next one
+  npm run studio -- approve-scene <project> <scene|all>
+  npm run studio -- revise <project> <scene> --notes "<what to change>"
   npm run studio -- projects                         list projects in the workspace
   npm run studio -- import <production-folder>       bring a pipeline production in as a project
   npm run studio -- scenes <project>                 list a project's scenes and their status
@@ -28,13 +38,14 @@ A scene is named by its label, such as 1.3, or by its id.
 
 Options:
   --workspace <folder>                   where studio.db and projects live (default: ~/VideoStudio, or STUDIO_WORKSPACE)
-  --runner <claude-cli|agent-sdk|mock>   how agents run
+  --runner <claude-cli|mock>             how Claude runs: your Claude Code login, or a stand-in that writes fixed samples
   --model <name>                         model for every agent
   --final                                render or assemble at full quality (default: fast preview)
   --chapter <number>                     assemble one chapter only
   --label <text>                         name for an added asset
   --reference <style|layout|motion>      also mark an added asset as a reference for the whole video
   --note <text>                          what to take from the reference
+  --notes <text>                         what should change, for start and revise
   -h, --help
 `;
 
@@ -48,28 +59,61 @@ async function main() {
       final: { type: "boolean", default: false },
       chapter: { type: "string" },
       label: { type: "string" },
+      minutes: { type: "string" },
+      seconds: { type: "string" },
+      title: { type: "string" },
+      notes: { type: "string" },
+      port: { type: "string" },
+      "no-open": { type: "boolean", default: false },
       reference: { type: "string" },
       note: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
   });
-  const [command, ...rest] = positionals;
-  if (values.help || !command) {
+  const [command = "serve", ...rest] = positionals;
+  if (values.help) {
     console.log(HELP);
     return;
   }
-  const config = loadConfig({ runner: values.runner as RunnerKind | undefined, model: values.model });
+  if (command === "serve") return serveStudio(values);
+  const config = studioConfig(values);
   const studio = new Studio(config, values.workspace);
   try {
-    await run(studio, command, rest, { final: values.final, chapter: values.chapter, label: values.label, reference: values.reference, note: values.note });
+    await run(studio, command, rest, { ...values, final: values.final });
   } finally {
     studio.close();
   }
 }
 
-async function run(studio: Studio, command: string, rest: string[], flags: { final: boolean; chapter?: string; label?: string; reference?: string; note?: string }) {
+async function run(studio: Studio, command: string, rest: string[], flags: { final: boolean; chapter?: string; label?: string; reference?: string; note?: string; minutes?: string; seconds?: string; title?: string; notes?: string }) {
   const log = (message: string) => console.log(message);
   const quality = flags.final ? "final" : "preview";
+  if (command === "new") {
+    const seconds = flags.seconds ? Number(flags.seconds) : flags.minutes ? Math.round(Number(flags.minutes) * 60) : undefined;
+    const project = createProject(studio, { description: required(rest[0], "description"), title: flags.title, targetDurationSec: seconds });
+    console.log(`Created project ${project.slug} ("${project.title}", ${project.targetDurationSec}s).\nNext: npm run studio -- start ${project.slug}`);
+    return;
+  }
+  if (command === "status") {
+    const project = getProject(studio, required(rest[0], "project"));
+    printStatus(studio, new Orchestrator(studio), project.id);
+    return;
+  }
+  if (command === "start" || command === "approve" || command === "approve-scene" || command === "revise") {
+    const project = getProject(studio, required(rest[0], "project"));
+    const o = new Orchestrator(studio);
+    if (command === "start") o.startStage(project.id, flags.notes);
+    if (command === "approve") console.log(`Approved. The project is now at: ${o.approveStage(project.id, flags.notes).stage}`);
+    if (command === "approve-scene") {
+      const which = required(rest[1], "scene");
+      const scenes = which === "all" ? listScenes(studio, project.id).filter((s) => s.status === "needs_review") : [findScene(studio, project.id, which)];
+      for (const scene of scenes) console.log(`Approved ${sceneLabel(studio, o.approveScene(scene.id, flags.notes))} ${scene.title}`);
+    }
+    if (command === "revise") o.reviseScene(findScene(studio, project.id, required(rest[1], "scene")).id, required(flags.notes, "--notes"));
+    await follow(studio, o, project.id);
+    printStatus(studio, o, project.id);
+    return;
+  }
   if (command === "projects") {
     const all = listProjects(studio);
     console.log(`Workspace: ${studio.workspaceDir}`);
@@ -160,6 +204,75 @@ async function run(studio: Studio, command: string, rest: string[], flags: { fin
   }
   console.log(HELP);
   process.exitCode = 1;
+}
+
+/** Start the GUI server and keep it running until the terminal is closed. */
+/** The studio runs Claude through Claude Code, so a run can be continued later. The API-key runner is for the older pipeline only. */
+function studioConfig(values: { runner?: string; model?: string }) {
+  const config = loadConfig({ runner: values.runner as RunnerKind | undefined, model: values.model });
+  if (config.runner === "agent-sdk") {
+    throw new Error('The studio does not use the agent-sdk runner yet. Use "claude-cli" (your Claude Code login) or "mock".');
+  }
+  return config;
+}
+
+async function serveStudio(values: { workspace?: string; runner?: string; model?: string; port?: string; "no-open"?: boolean }) {
+  const { startServer } = await import("@studio/server/src/server");
+  const config = studioConfig(values);
+  const studio = new Studio(config, values.workspace);
+  const server = await startServer(studio, { port: values.port ? Number(values.port) : undefined });
+  console.log(`Scene Studio is running at ${server.url}\nProjects are kept in ${studio.workspaceDir}\nPress Ctrl+C to stop.`);
+  if (config.runner === "mock") console.log("Using the stand-in runner: plans and scenes are fixed samples, and Claude is not called.");
+  if (!values["no-open"]) openBrowser(server.url);
+  await new Promise<void>((resolve) => {
+    const stop = () => resolve();
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
+  });
+  await server.close();
+  studio.close();
+}
+
+function openBrowser(url: string) {
+  const [cmd, args] = process.platform === "darwin" ? ["open", [url]] : process.platform === "win32" ? ["cmd", ["/c", "start", "", url]] : ["xdg-open", [url]];
+  try {
+    // A missing opener is not worth stopping for: the address is printed above.
+    spawn(cmd as string, args as string[], { stdio: "ignore", detached: true }).on("error", () => {}).unref();
+  } catch {
+    // Same.
+  }
+}
+
+/** Print what the runs say while they work, until everything has finished. */
+async function follow(studio: Studio, o: Orchestrator, projectId: string) {
+  const seen = new Map<string, number>();
+  let done = false;
+  const idle = o.idle().then(() => (done = true));
+  const print = () => {
+    for (const run of listRuns(studio, projectId, { limit: 50 }).reverse()) {
+      const log = readRunLog(studio, run.id, seen.get(run.id) ?? 0);
+      seen.set(run.id, log.next);
+      const who = run.targetKind === "scene" ? `scene ${sceneLabel(studio, getScene(studio, run.targetId!))}` : run.targetKind;
+      for (const line of log.lines) console.log(`[${who}] ${line.kind === "tool" ? "> " : line.kind === "result" ? "  " : ""}${line.text.split("\n")[0]!.slice(0, 200)}`);
+    }
+  };
+  for (const run of listRuns(studio, projectId, { limit: 500 })) if (!["queued", "running"].includes(run.status)) seen.set(run.id, Number.MAX_SAFE_INTEGER);
+  while (!done) {
+    print();
+    await new Promise((r) => setTimeout(r, 700));
+  }
+  await idle;
+  print();
+}
+
+function printStatus(studio: Studio, o: Orchestrator, projectId: string) {
+  const status = o.stageStatus(projectId);
+  console.log(`\nStage: ${status.stage}. ${status.about}`);
+  for (const scene of listScenes(studio, projectId)) {
+    console.log(`  ${sceneLabel(studio, scene).padEnd(6)} ${scene.type.padEnd(13)} ${scene.status.padEnd(14)} ${scene.title}${scene.staleReason ? `  (${scene.staleReason})` : ""}`);
+  }
+  if (status.waitingOn.length) console.log(`Waiting on:\n  - ${status.waitingOn.join("\n  - ")}`);
+  else if (status.stage !== "done") console.log("Ready for you to approve.");
 }
 
 function required(value: string | undefined, what: string): string {

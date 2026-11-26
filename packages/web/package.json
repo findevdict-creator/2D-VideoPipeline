@@ -1,0 +1,11 @@
+{
+  "name": "@studio/web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The studio's GUI: a React app the local server bundles and serves",
+  "dependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  }
+}
