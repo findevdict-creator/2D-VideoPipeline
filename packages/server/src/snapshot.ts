@@ -111,6 +111,8 @@ export function projectSnapshot(studio: Studio, orchestrator: Orchestrator, idOr
   return {
     project,
     stage: orchestrator.stageStatus(project.id),
+    /** Set while work is on hold for Claude's usage limit. */
+    usage: orchestrator.usagePause(),
     sceneTypes: availableSceneTypes(studio).map((t) => ({ type: t, about: SCENE_TYPE_GUIDE[t] })),
     /** Scene types this machine cannot build until something is installed. */
     missingSceneTypes: unavailableSceneTypes(studio).map((t) => ({ ...t, about: SCENE_TYPE_GUIDE[t.type] })),

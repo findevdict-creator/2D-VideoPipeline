@@ -130,6 +130,15 @@ export const StudioConfigSchema = z.object({
     .prefault({}),
   /** Check-and-fix rounds a scene agent gets before the scene is marked failed. */
   maxFixRounds: z.number().int().min(0).max(6).default(3),
+  /** What happens when Claude's usage limit stops a run: the studio waits and carries on by itself. */
+  usageLimit: z
+    .object({
+      /** Minutes to wait before trying again when Claude does not say when the limit lifts. Doubles after each try that fails, up to an hour. */
+      retryMinutes: z.number().positive().max(240).default(15),
+      /** Tries one run gets at a limit before it is marked failed. */
+      maxTries: z.number().int().min(1).max(50).default(8),
+    })
+    .prefault({}),
   /** Models with more triangles than this get a warning when added: they render, but slowly. */
   modelTriangleBudget: z.number().int().min(1000).default(300_000),
   /** Port of the local GUI server. */

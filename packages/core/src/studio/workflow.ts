@@ -4,6 +4,7 @@ import { assemble, type AssembleOptions, type AssembleResult } from "./assemble.
 import { newId, nowIso } from "./ids.js";
 import { ffmpeg } from "./media/ffmpeg.js";
 import { Lanes } from "./runs/lanes.js";
+import { describeTime, UsageLimitError } from "./runs/limits.js";
 import { MockStudioRunner } from "./runs/mock.js";
 import { agentFor, systemPrompt, taskPrompt } from "./runs/prompts.js";
 import { ClaudeCliStudioRunner, type StudioRunner } from "./runs/runner.js";
@@ -28,6 +29,25 @@ export interface StageStatus {
   waitingOn: string[];
 }
 
+/** Work is on hold because Claude's usage limit was reached. It continues by itself. */
+export interface UsagePause {
+  since: string;
+  /** When the studio tries again. */
+  until: string;
+  /** True when Claude said when the limit lifts. False when the studio is simply trying again after a wait. */
+  known: boolean;
+  /** "limit" is the plan's usage limit; "busy" is a short overload on Claude's side. */
+  cause: "limit" | "busy";
+  /** Runs waiting for it. */
+  waiting: number;
+}
+
+const CONTINUE = `You were stopped part-way through this task by a usage limit, and can now carry on. Everything you saved through the studio tools, and every file you wrote, is still there: look at what exists first, and do not redo finished work.
+
+The task was:
+
+`;
+
 const ABOUT: Record<Project["stage"], string> = {
   outline: "The outline: what the video explains, and its chapters.",
   bible: "The bible: the voice, the look, and the things that recur.",
@@ -47,6 +67,13 @@ export class Orchestrator {
   readonly runner: StudioRunner;
   private readonly aborts = new Map<string, AbortController>();
   private readonly background = new Set<Promise<unknown>>();
+  private pause?: { since: number; until: number; known: boolean; cause: "limit" | "busy"; wait: Promise<void>; open: () => void; timer?: ReturnType<typeof setTimeout> };
+  /** Pauses in a row with no run finishing in between: each one waits longer. */
+  private limitStreak = 0;
+  private waitingRuns = 0;
+  private stopped = false;
+  /** Waited on top of the time Claude names, because two clocks never quite agree. */
+  limitMarginMs = 20_000;
 
   constructor(
     readonly studio: Studio,
@@ -54,8 +81,19 @@ export class Orchestrator {
   ) {
     this.lanes = new Lanes(studio.config.studio.lanes);
     this.runner = runner ?? (studio.config.runner === "mock" ? new MockStudioRunner() : new ClaudeCliStudioRunner(studio.config.claudeBin));
-    failInterruptedRuns(studio);
-    this.settleInterrupted();
+    // Another studio process may be at work in this workspace, such as the GUI while a terminal command runs. Its runs are not ours to tidy up.
+    if (claimWorkspace(studio)) {
+      failInterruptedRuns(studio);
+      this.settleInterrupted();
+    }
+  }
+
+  /** Stop everything this orchestrator started: for closing the studio. What was saved stays. */
+  stop() {
+    this.stopped = true;
+    for (const abort of this.aborts.values()) abort.abort();
+    this.endPause();
+    releaseWorkspace(this.studio);
   }
 
   /** After the studio was closed in the middle of work: nothing is left looking as if it were still being worked on. */
@@ -119,6 +157,8 @@ export class Orchestrator {
 
   private async executeRun(runId: string, signal: AbortSignal): Promise<AgentRun> {
     const { studio } = this;
+    // A run that comes up while a usage limit is in force waits its turn here instead of running into the limit itself.
+    await this.clearToRun(signal);
     if (signal.aborted) return updateRun(studio, runId, { status: "cancelled", finishedAt: nowIso() });
     let run = updateRun(studio, runId, { status: "running", startedAt: nowIso() });
     const project = getProject(studio, run.projectId);
@@ -158,28 +198,124 @@ export class Orchestrator {
     };
     log("info", `${run.agent} started${run.payload.notes ? ` on your notes: ${run.payload.notes}` : ""}`);
     const started = Date.now();
-    try {
-      let result;
+    const once = async (attempt: typeof request & { resumeSessionId?: string }) => {
       try {
-        result = await this.runner.run(studio, { ...request, resumeSessionId: run.payload.resumeFrom });
+        return await this.runner.run(studio, attempt);
       } catch (err) {
         // A session from another computer, or one Claude Code has cleaned up, cannot be resumed. Start fresh.
-        if (!run.payload.resumeFrom || signal.aborted || !/conversation|session|resume/i.test((err as Error).message)) throw err;
+        if (!attempt.resumeSessionId || signal.aborted || err instanceof UsageLimitError || !/conversation|session|resume/i.test((err as Error).message)) throw err;
         log("info", "The earlier session could not be continued, so this run starts fresh.");
-        result = await this.runner.run(studio, request);
+        return await this.runner.run(studio, request);
       }
-      return updateRun(studio, runId, {
-        status: "done",
-        resultText: result.text,
-        claudeSessionId: result.sessionId ?? run.claudeSessionId,
-        costUsd: result.costUsd ?? null,
-        durationMs: result.durationMs ?? Date.now() - started,
-        finishedAt: nowIso(),
-      });
+    };
+    try {
+      let attempt: typeof request & { resumeSessionId?: string } = { ...request, resumeSessionId: run.payload.resumeFrom };
+      for (let tries = 1; ; tries++) {
+        try {
+          const result = await once(attempt);
+          this.limitStreak = 0;
+          return updateRun(studio, runId, {
+            status: "done",
+            resultText: result.text,
+            claudeSessionId: result.sessionId ?? run.claudeSessionId,
+            costUsd: result.costUsd ?? null,
+            durationMs: result.durationMs ?? Date.now() - started,
+            finishedAt: nowIso(),
+          });
+        } catch (err) {
+          if (!(err instanceof UsageLimitError) || signal.aborted) throw err;
+          if (tries >= studio.config.studio.usageLimit.maxTries) throw new Error(`${err.message}\nThe limit was still in place after ${tries} tries, so this run stopped. Start it again later.`);
+          // Not a failure: the run keeps its place, waits for the limit to lift and continues the same session.
+          const pause = this.pauseFor(err);
+          log("info", `${err.cause === "busy" ? "Claude is overloaded right now" : "Claude's usage limit was reached"}. This run waits and carries on by itself ${describeTime(new Date(pause.until))}. Nothing it saved is lost.`);
+          run = updateRun(studio, runId, { status: "queued" });
+          await this.clearToRun(signal);
+          if (signal.aborted) throw new Error("Cancelled");
+          run = updateRun(studio, runId, { status: "running" });
+          log("info", "Carrying on.");
+          const session = run.claudeSessionId ?? run.payload.resumeFrom;
+          attempt = session ? { ...request, prompt: CONTINUE + request.prompt, resumeSessionId: session } : { ...request };
+        }
+      }
     } catch (err) {
       const message = (err as Error).message;
       log("error", message);
       return updateRun(studio, runId, { status: signal.aborted ? "cancelled" : "failed", error: message, durationMs: Date.now() - started, finishedAt: nowIso() });
+    }
+  }
+
+  // ---------- Usage limits ----------
+
+  /** The pause in force, if work is on hold for a usage limit. */
+  usagePause(): UsagePause | null {
+    const p = this.pause;
+    return p ? { since: new Date(p.since).toISOString(), until: new Date(p.until).toISOString(), known: p.known, cause: p.cause, waiting: this.waitingRuns } : null;
+  }
+
+  /** Do not wait any longer: let the waiting runs try now. If the limit is still there, they pause again. */
+  resumeNow() {
+    this.endPause();
+  }
+
+  /** Put everything that needs Claude on hold until the limit lifts. Runs that hit the same limit share one pause. */
+  private pauseFor(err: UsageLimitError) {
+    const now = Date.now();
+    const known = Boolean(err.resetAt && err.resetAt.getTime() > now);
+    const retry = this.studio.config.studio.usageLimit.retryMinutes;
+    const base = err.cause === "busy" ? Math.min(2, retry) : retry;
+    const until = known ? err.resetAt!.getTime() + this.limitMarginMs : now + Math.min(base * 2 ** this.limitStreak, Math.max(60, base)) * 60_000;
+    if (this.pause) {
+      // A stated reset time beats a guess, and the later of two stated times is the one to wait for.
+      if (known && (!this.pause.known || until > this.pause.until)) {
+        this.pause.until = until;
+        this.pause.known = true;
+        this.pause.cause = err.cause;
+        this.watchPause();
+      }
+      return this.pause;
+    }
+    this.limitStreak++;
+    let open!: () => void;
+    const wait = new Promise<void>((resolve) => (open = resolve));
+    this.pause = { since: now, until, known, cause: err.cause, wait, open };
+    // Every project waits on the same limit, so every open page hears about it.
+    this.studio.emit("usage.paused", { data: { until: new Date(until).toISOString(), known, cause: err.cause } });
+    this.watchPause();
+    return this.pause;
+  }
+
+  /** Looks at the clock every so often, not once, so a computer that slept through the reset still wakes the work up. */
+  private watchPause() {
+    const p = this.pause;
+    if (!p) return;
+    clearTimeout(p.timer);
+    const left = p.until - Date.now();
+    if (left <= 0) return this.endPause();
+    p.timer = setTimeout(() => this.watchPause(), Math.min(left, 30_000));
+  }
+
+  private endPause() {
+    const p = this.pause;
+    if (!p) return;
+    clearTimeout(p.timer);
+    this.pause = undefined;
+    p.open();
+    if (!this.stopped) this.studio.emit("usage.resumed", {});
+  }
+
+  /** Resolves when no usage limit is holding work back, or when the run is cancelled. */
+  private async clearToRun(signal: AbortSignal) {
+    while (this.pause && !signal.aborted) {
+      let cancel!: () => void;
+      const cancelled = new Promise<void>((resolve) => (cancel = resolve));
+      signal.addEventListener("abort", cancel, { once: true });
+      this.waitingRuns++;
+      try {
+        await Promise.race([this.pause.wait, cancelled]);
+      } finally {
+        this.waitingRuns--;
+        signal.removeEventListener("abort", cancel);
+      }
     }
   }
 
@@ -467,6 +603,21 @@ export class Orchestrator {
     });
   }
 
+  /**
+   * Bring every out-of-date scene up to date in one go. Each is rendered again with the
+   * shared components as they are now, and goes back up for your review. No agent runs.
+   */
+  rebuildStale(projectId: string): string[] {
+    const { studio } = this;
+    const stale = listScenes(studio, projectId).filter((s) => s.status === "stale");
+    for (const scene of stale) {
+      // Marked first, so asking twice does not render twice.
+      setSceneStatus(studio, scene.id, "in_production");
+      void this.track(this.renderScene(scene.id)).catch(() => undefined); // renderScene marks the scene failed, with the reason.
+    }
+    return stale.map((s) => s.id);
+  }
+
   /** The clip with its narration, for watching in the GUI. Clips themselves stay silent so they can be joined. */
   private async reviewCopy(sceneId: string, clip: Clip) {
     const { studio } = this;
@@ -483,7 +634,7 @@ export class Orchestrator {
   /** Join the scenes into the video. Scenes whose clips are missing are rendered first. */
   assemble(projectId: string, opts: Omit<AssembleOptions, "onProgress" | "log"> = {}): Promise<AssembleResult> {
     return this.job(projectId, "assemble", opts.chapterId ?? null, (progress) =>
-      assemble(this.studio, projectId, { ...opts, onProgress: (done, total) => progress(total ? done / total : 0) }),
+      assemble(this.studio, projectId, { ...opts, concurrency: this.studio.config.studio.lanes.renders, onProgress: (done, total) => progress(total ? done / total : 0) }),
     );
   }
 
@@ -517,5 +668,48 @@ export class Orchestrator {
         }
       }),
     );
+  }
+}
+
+// ---------- One studio at work per workspace ----------
+
+const ownerFile = (studio: Studio) => path.join(studio.workspaceDir, "studio.owner");
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // No permission to signal it still means it exists.
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Note that this process runs the workspace's work. False when another live process already
+ * does: then this one is a visitor, and must not treat that process's runs as abandoned.
+ */
+function claimWorkspace(studio: Studio): boolean {
+  const file = ownerFile(studio);
+  try {
+    const pid = Number(fs.readFileSync(file, "utf8").trim());
+    if (pid && pid !== process.pid && alive(pid)) return false;
+  } catch {
+    // No owner yet.
+  }
+  try {
+    fs.writeFileSync(file, String(process.pid));
+  } catch {
+    // A workspace that cannot be written to will say so soon enough.
+  }
+  return true;
+}
+
+function releaseWorkspace(studio: Studio) {
+  const file = ownerFile(studio);
+  try {
+    if (Number(fs.readFileSync(file, "utf8").trim()) === process.pid) fs.rmSync(file);
+  } catch {
+    // Already gone.
   }
 }

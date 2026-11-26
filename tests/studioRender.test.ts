@@ -52,11 +52,15 @@ test("narration is laid on the frame grid, so scenes rounded to frames never dri
     return { file, startFrame: i * 30, frames: 30 };
   });
   const out = layVoiceTrack(items, 30, path.join(dir, "out.wav"));
-  assert.equal(out.samples.length, 72000, "exactly 3 seconds");
-  assert.equal(readWav(path.join(dir, "out.wav")).samples.length, 72000);
+  assert.equal(out.samples, 72000, "exactly 3 seconds");
+  const laid = readWav(path.join(dir, "out.wav"));
+  assert.equal(laid.samples.length, 72000);
+  assert.ok(laid.samples.every((v) => v === 1000));
   // A short clip leaves silence before the next scene starts.
   writeWav(items[0]!.file, { sampleRate: 24000, samples: new Int16Array(12000).fill(1000) });
-  const padded = layVoiceTrack(items, 30, path.join(dir, "out2.wav"));
+  layVoiceTrack(items, 30, path.join(dir, "out2.wav"));
+  const padded = readWav(path.join(dir, "out2.wav"));
+  assert.equal(padded.samples.length, 72000);
   assert.equal(padded.samples[11999], 1000);
   assert.equal(padded.samples[12000], 0);
   assert.equal(padded.samples[24000], 1000, "scene 2 starts on its frame");

@@ -41,6 +41,8 @@ export interface AssembleOptions {
    * must be approved. Off by default for previews, which show each scene as it stands.
    */
   approvedOnly?: boolean;
+  /** How many missing clips are rendered at once. */
+  concurrency?: number;
   onProgress?: (done: number, total: number, label: string) => void;
   log?: (message: string) => void;
 }
@@ -94,23 +96,35 @@ export async function assemble(studio: Studio, projectId: string, opts: Assemble
 
   let rendered = 0;
   let reused = 0;
-  const parts: { scene: Scene; versionId: string; clip: Clip }[] = [];
-  for (const [i, item] of chosen.entries()) {
-    const label = `${sceneLabel(studio, item.scene)} ${item.scene.title}`;
-    opts.onProgress?.(i, chosen.length, label);
-    try {
-      const result = await renderSceneClip(studio, item.scene.id, quality, () => {}, log, item.versionId);
-      if (result.cached) reused++;
-      else {
-        rendered++;
-        log(`Rendered ${label}`);
+  // Clips that exist are reused as they are; the missing ones are rendered a few at a time, which is what makes a long video's final render bearable.
+  const slots: ({ scene: Scene; versionId: string; clip: Clip } | undefined)[] = new Array(chosen.length);
+  let next = 0;
+  let finished = 0;
+  let failure: Error | undefined;
+  const worker = async () => {
+    while (next < chosen.length && !failure) {
+      const i = next++;
+      const item = chosen[i]!;
+      const label = `${sceneLabel(studio, item.scene)} ${item.scene.title}`;
+      try {
+        const result = await renderSceneClip(studio, item.scene.id, quality, () => {}, log, item.versionId);
+        if (result.cached) reused++;
+        else {
+          rendered++;
+          log(`Rendered ${label}`);
+        }
+        slots[i] = { ...item, clip: result.clip };
+      } catch (err) {
+        if (quality === "final") failure ??= new Error(`Scene ${label} could not be rendered: ${(err as Error).message}`);
+        else skip(item.scene, `could not be rendered: ${(err as Error).message.split("\n")[0]}`);
       }
-      parts.push({ ...item, clip: result.clip });
-    } catch (err) {
-      if (quality === "final") throw new Error(`Scene ${label} could not be rendered: ${(err as Error).message}`);
-      skip(item.scene, `could not be rendered: ${(err as Error).message.split("\n")[0]}`);
+      opts.onProgress?.(++finished, chosen.length, label);
     }
-  }
+  };
+  opts.onProgress?.(0, chosen.length, "");
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(opts.concurrency ?? 1, chosen.length)) }, worker));
+  if (failure) throw failure;
+  const parts = slots.filter((s) => s !== undefined);
   if (!parts.length) throw new Error(`No scene could be included:\n${skipped.map((s) => `  ${s.label} ${s.title}: ${s.reason}`).join("\n")}`);
   opts.onProgress?.(chosen.length, chosen.length, "Joining clips");
 

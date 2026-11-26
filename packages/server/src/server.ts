@@ -91,6 +91,12 @@ export async function startServer(studio: Studio, opts: { port?: number; orchest
     return { started: true };
   });
 
+  route("POST", "/api/projects/:project/stale/rebuild", ({ params }) => ({ scenes: o.rebuildStale(getProject(studio, params.project!).id).length }));
+  route("POST", "/api/usage/resume", () => {
+    o.resumeNow();
+    return { ok: true };
+  });
+
   // ---------- Chapters and scenes ----------
   route("POST", "/api/chapters/:chapter/revise", ({ params, body }) => {
     if (!notes(body)) throw new Refused("Say what should change.");

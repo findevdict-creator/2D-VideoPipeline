@@ -76,6 +76,7 @@ export function ProjectPage({ slug, tab }: { slug: string; tab?: string }) {
           </p>
         </div>
       </div>
+      {snap.usage && <UsageBanner usage={snap.usage} />}
       <StageBar
         snap={snap}
         onChanged={() => {
@@ -103,6 +104,28 @@ export function ProjectPage({ slug, tab }: { slug: string; tab?: string }) {
 
       {openScene && <SceneDrawer sceneId={openScene} snapshot={snap} refreshKey={version} onClose={() => setOpenScene(undefined)} />}
     </main>
+  );
+}
+
+// ---------- Claude's usage limit ----------
+
+function UsageBanner({ usage }: { usage: NonNullable<Snapshot["usage"]> }) {
+  const [busy, act] = useAction();
+  const until = new Date(usage.until);
+  const today = until.toDateString() === new Date().toDateString();
+  const when = `${today ? "at" : `on ${until.toLocaleDateString([], { weekday: "long" })} at`} ${until.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+  const runs = usage.waiting === 1 ? "1 run is" : `${usage.waiting} runs are`;
+  return (
+    <section className="notice notice-warn usage">
+      <div>
+        <strong>{usage.cause === "busy" ? "Claude is overloaded right now." : "Claude's usage limit was reached."}</strong>{" "}
+        {usage.known ? `${runs} waiting and will carry on by ${usage.waiting === 1 ? "itself" : "themselves"} ${when}, when the limit lifts.` : `${runs} waiting. Claude did not say when the limit lifts, so the studio tries again ${when}.`}{" "}
+        Nothing is lost, and you can keep reviewing and rendering in the meantime.
+      </div>
+      <button className="btn" disabled={busy} onClick={() => act(() => api.resumeUsage())}>
+        Try now
+      </button>
+    </section>
   );
 }
 
@@ -362,6 +385,7 @@ function ScenesTab({ snap, open, onOpen }: { snap: Snapshot; open?: string; onOp
   const statuses = SCENE_FILTERS.find((f) => f.id === filter)?.statuses;
   const jobs = snap.jobs as { id: string; kind: string; targetId: string | null; status: string; progress: number }[];
   const many = snap.chapters.length > 2;
+  const stale = snap.scenes.filter((s) => s.status === "stale");
   return (
     <>
       {planning && (
@@ -369,6 +393,17 @@ function ScenesTab({ snap, open, onOpen }: { snap: Snapshot; open?: string; onOp
           Scene lists are written one chapter after another. Open a scene to edit its narration or type by hand, or ask Claude to rewrite a chapter. Approve a chapter's list and its scenes are built straight away, while later chapters are still being
           written.
         </p>
+      )}
+      {stale.length > 0 && (
+        <section className="notice notice-warn usage">
+          <div>
+            <strong>{stale.length === 1 ? "1 scene is out of date." : `${stale.length} scenes are out of date.`}</strong> {[...new Set(stale.map((s) => s.reason).filter(Boolean))].join(". ")}
+            {". "}Rendering them again draws them with the shared parts as they are now, and puts them back up for your review.
+          </div>
+          <button className="btn" disabled={busy} onClick={() => act(() => api.rebuildStale(snap.project.slug))}>
+            {stale.length === 1 ? "Render it again" : `Render all ${stale.length} again`}
+          </button>
+        </section>
       )}
       <div className="row wrap centred board-tools">
         {many && (

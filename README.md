@@ -2,7 +2,7 @@
 
 A studio for making explainer videos scene by scene. You describe the video. Claude plans it, builds every scene as its own small animation, and you review each scene by itself: approve it, or say what should change and only that scene is rebuilt.
 
-**Status:** Phases 1 and 2 of the scene studio are complete: projects, a local database, per-scene clips, your own images and video clips, an MCP server that Claude works through, parallel scene building, a GUI, and five ways to make a scene: 2D animation, 3D with react-three-fiber (including models you made in Blender), Manim, images and video clips. Long videos, sound and finishing come next (see [Roadmap](#roadmap)). The original command-line pipeline still works and is described [further down](#the-original-pipeline).
+**Status:** Phases 1 to 3 of the scene studio are complete: projects, a local database, per-scene clips, your own images and video clips, an MCP server that Claude works through, parallel scene building, a GUI, five ways to make a scene (2D animation, 3D with react-three-fiber including models you made in Blender, Manim, images and video clips), and long videos that are written, approved, built and previewed one chapter at a time, with work that waits out Claude's usage limit and carries on by itself. Sound and finishing come next (see [Roadmap](#roadmap)). The original command-line pipeline still works and is described [further down](#the-original-pipeline).
 
 ## Quick start
 
@@ -36,11 +36,21 @@ A project moves through six stages. Claude does the work of a stage, then the st
 | 1. Outline | Splits your description into chapters, each with a length | The outline and the chapter list |
 | 2. Bible | Writes the rules every scene follows: voice, look, colours, motion, and the things that recur | The bible and the colour theme |
 | 3. Shared parts | Builds each recurring thing once as a component, with a preview picture | Each component |
-| 4. Scene list | Writes the scenes of each chapter: narration, what the viewer sees, and the scene's type | The scenes. You can edit a scene's narration, idea or type by hand |
+| 4. Scene list | Writes the scenes of each chapter, one chapter after another: narration, what the viewer sees, and the scene's type | Each chapter's scenes. You can edit a scene's narration, idea or type by hand |
 | 5. Scenes | Records the narration, then builds every scene, several at a time. Each scene is checked, test-rendered, and rendered to its own clip | Each scene, one by one |
 | 6. Video | Joins the approved clips with the narration, and writes subtitles | The finished video |
 
 Shared parts come before any scene on purpose. A camera, a character or a recurring diagram is drawn once, so ten scenes built at the same time all show the same camera.
+
+### Long videos, chapter by chapter
+
+A video can be up to an hour long. So that you are not left waiting for all of it, stages 4 and 5 overlap:
+
+- **Scene lists are written one chapter after another**, so each chapter can read what the earlier ones already said.
+- **You approve a chapter's scene list by itself.** Its narration is recorded and its scenes are built straight away, while later chapters are still being written. You can be approving the scenes of chapter 1 while chapter 3 is still on its way. "Approve every scene list and build" does the rest in one go.
+- **Each chapter shows where it stands** on the Scenes tab: not written yet, being written, scene list waiting for your approval, in production with how many scenes are approved, or done. A strip of chapter numbers at the top jumps to a chapter, and a filter shows only the scenes that need you.
+- **A chapter can be watched by itself.** "Preview this chapter" joins its scenes as they stand now, which takes seconds. A scene that is being rebuilt at that moment is left out, or shown in the version you last approved.
+- **Asking for changes to a chapter's scene list** after you approved it puts the list back up for your approval. Scenes that were already built are kept.
 
 ### Reviewing a scene
 
@@ -112,7 +122,20 @@ A scene run saves its plan, writes the scene file (`scene.tsx`, or `scene.py` fo
 
 - **Scenes are built in parallel.** Three Claude runs and two renders at a time by default (`studio.lanes` in the settings). More is faster and uses your plan faster.
 - **Nothing is done twice.** A scene's narration is recorded again only if its text or the voice settings change. A clip is rendered again only if the scene, its timing, the theme or a shared part it imports changes.
-- **A changed shared part marks exactly the scenes that use it as out of date**, and they are rendered again when you ask.
+- **A changed shared part marks exactly the scenes that use it as out of date.** The Scenes tab says how many and why, and one button (or `npm run studio -- refresh <project>`) renders them all again with the part as it is now and puts them back up for your review. No Claude run is needed for that.
+- **The final video renders its missing clips a few at a time** and reuses every clip that is still current, so changing three scenes of a 20-minute video renders three clips.
+
+### When Claude's usage limit is reached
+
+A long video can use more of your Claude plan than one limit window allows. When Claude Code reports that the limit was reached, nothing fails:
+
+- Every run that hit the limit keeps its place and waits. Runs that had not started yet wait too, instead of running into the limit themselves.
+- The studio reads when the limit lifts from what Claude Code reports, shows that time in a banner at the top of the project, and carries on by itself shortly after. If Claude does not say when, the studio tries again after `studio.usageLimit.retryMinutes`, waiting twice as long after each try that fails, up to an hour.
+- A run that carries on continues the same Claude session, and everything it had saved is still there. You can keep reviewing, approving and rendering while runs wait.
+- "Try now" in the banner ends the wait early, which is useful after you raised your limit.
+- A short overload on Claude's side is treated the same way, with a shorter wait.
+
+If you close the studio while runs are waiting or working, they stop. What they saved is kept, the scenes they were building are marked as failed with that reason, and "Build the remaining scenes" starts them again. A terminal command run while the GUI is open leaves the GUI's work alone.
 
 ## Command line
 
@@ -124,8 +147,11 @@ npm run studio -- status <project>          # where it stands and what it waits 
 npm run studio -- approve <project>         # approve the current stage and start the next
 npm run studio -- start <project> --notes "Open with the hum on a plane"   # ask for changes to the current stage
 npm run studio -- scenes <project>
+npm run studio -- approve-chapter <project> 1   # approve one chapter's scene list and build its scenes
 npm run studio -- revise <project> 1.3 --notes "Make the label larger"
 npm run studio -- approve-scene <project> all
+npm run studio -- refresh <project>           # render every out-of-date scene again
+npm run studio -- assemble <project> --chapter 1    # a preview of one chapter
 npm run studio -- assemble <project> --final
 npm run studio -- asset add <project> photo.png --reference style --note "the colours, not the people"
 npm run studio -- import examples/how-gps-works     # bring a pipeline production in as a project
@@ -166,6 +192,8 @@ In [`pipeline.config.json`](pipeline.config.json), under `studio`. The voice and
 | `studio.lanes.agents` | `3` | Claude runs at the same time |
 | `studio.lanes.renders` | `2` | Scene renders at the same time. Each one runs a browser, so memory is the limit |
 | `studio.lanes.light` | `1` | Short jobs, such as recording narration and joining clips |
+| `studio.usageLimit.retryMinutes` | `15` | How long to wait before trying again when Claude's usage limit is reached and Claude does not say when it lifts. Doubles after each try that fails, up to an hour |
+| `studio.usageLimit.maxTries` | `8` | Tries one run gets at a usage limit before it is marked failed |
 | `studio.modelTriangleBudget` | `300000` | A 3D model with more triangles than this gets a warning when added: it renders, but slowly |
 | `render.gl` | empty | How Chrome draws 3D scenes. Empty tries the graphics card (`angle`) and falls back to software (`swangle`), which is slower but works anywhere. Also `REMOTION_GL` |
 | `render.manim.python` | empty | Python to run Manim with. Empty means the one `setup:manim` installed. Also `MANIM_PYTHON` |
@@ -202,7 +230,7 @@ Code map:
 
 1. **Scene studio** (done): projects and database, per-scene clips, images and footage, MCP server, shared parts, parallel scene runs, GUI
 2. **More ways to make a scene** (done): 3D scenes with react-three-fiber, models from Blender as glTF, and Manim
-3. **Long videos**: chapters that are planned and assembled one at a time, and a queue that copes with hundreds of scenes
+3. **Long videos** (done): chapters that are written, approved, built and previewed one at a time, work that waits out Claude's usage limit, and one action to bring out-of-date scenes up to date
 4. **Consistency and sound**: stronger use of references and recurring characters, sound effects and music
 5. **Finishing**: comparing versions side by side, and export options
 

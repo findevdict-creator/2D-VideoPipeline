@@ -18,12 +18,15 @@ export class MockStudioRunner implements StudioRunner {
   delayMs = 0;
   /** Scenes written for each chapter. Raise it to try a long video. */
   scenesPerChapter = 2;
+  /** Called before every tool call. Throw a UsageLimitError from it to stand in for Claude's usage limit. */
+  beforeTool?: (req: StudioRunRequest, tool: string) => void;
 
   async run(studio: Studio, req: StudioRunRequest): Promise<StudioRunResult> {
     const ctx: ToolContext = { studio, projectId: req.run.projectId, run: req.run, log: (m) => req.onLog("info", m) };
     const sessionId = req.resumeSessionId ?? `mock-session-${req.run.id}`;
     req.onSession(sessionId);
     const call = async (tool: string, input: unknown = {}) => {
+      this.beforeTool?.(req, tool);
       req.onLog("tool", tool);
       const result = await callTool(ctx, tool, input);
       this.calls.push({ runId: req.run.id, tool, ok: result.ok });

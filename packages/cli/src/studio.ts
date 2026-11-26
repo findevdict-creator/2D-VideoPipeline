@@ -26,6 +26,7 @@ Usage:
   npm run studio -- approve-chapter <project> <number>   approve one chapter's scene list and build its scenes
   npm run studio -- approve-scene <project> <scene|all>
   npm run studio -- revise <project> <scene> --notes "<what to change>"
+  npm run studio -- refresh <project>                render every out-of-date scene again, after a shared part changed
   npm run studio -- projects                         list projects in the workspace
   npm run studio -- import <production-folder>       bring a pipeline production in as a project
   npm run studio -- scenes <project>                 list a project's scenes and their status
@@ -98,10 +99,12 @@ async function run(studio: Studio, command: string, rest: string[], flags: { fin
   }
   if (command === "status") {
     const project = getProject(studio, required(rest[0], "project"));
-    printStatus(studio, new Orchestrator(studio), project.id);
+    const o = new Orchestrator(studio);
+    printStatus(studio, o, project.id);
+    o.stop();
     return;
   }
-  if (command === "start" || command === "approve" || command === "approve-chapter" || command === "approve-scene" || command === "revise") {
+  if (command === "start" || command === "approve" || command === "approve-chapter" || command === "approve-scene" || command === "revise" || command === "refresh") {
     const project = getProject(studio, required(rest[0], "project"));
     const o = new Orchestrator(studio);
     if (command === "start") o.startStage(project.id, flags.notes);
@@ -116,9 +119,11 @@ async function run(studio: Studio, command: string, rest: string[], flags: { fin
       const scenes = which === "all" ? listScenes(studio, project.id).filter((s) => s.status === "needs_review") : [findScene(studio, project.id, which)];
       for (const scene of scenes) console.log(`Approved ${sceneLabel(studio, o.approveScene(scene.id, flags.notes))} ${scene.title}`);
     }
+    if (command === "refresh") console.log(`Rendering ${o.rebuildStale(project.id).length} out-of-date scene(s) again.`);
     if (command === "revise") o.reviseScene(findScene(studio, project.id, required(rest[1], "scene")).id, required(flags.notes, "--notes"));
     await follow(studio, o, project.id);
     printStatus(studio, o, project.id);
+    o.stop();
     return;
   }
   if (command === "projects") {
@@ -243,6 +248,9 @@ async function serveStudio(values: { workspace?: string; runner?: string; model?
     process.once("SIGTERM", stop);
   });
   await server.close();
+  // Claude runs started from here end with the studio. What they saved stays, and they can be started again.
+  server.orchestrator.stop();
+  await Promise.race([server.orchestrator.idle(), new Promise((r) => setTimeout(r, 3000))]);
   studio.close();
 }
 
