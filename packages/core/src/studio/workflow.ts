@@ -4,12 +4,13 @@ import { assemble, type AssembleOptions, type AssembleResult } from "./assemble.
 import { newId, nowIso } from "./ids.js";
 import { ffmpeg } from "./media/ffmpeg.js";
 import { Lanes } from "./runs/lanes.js";
+import { describeTime, UsageLimitError } from "./runs/limits.js";
 import { MockStudioRunner } from "./runs/mock.js";
 import { agentFor, systemPrompt, taskPrompt } from "./runs/prompts.js";
 import { ClaudeCliStudioRunner, type StudioRunner } from "./runs/runner.js";
 import { renderSceneClip } from "./scenes/render.js";
 import type { Studio } from "./studio.js";
-import { getChapter, listChapters, updateChapter } from "./store/chapters.js";
+import { getChapter, listChapters, syncChapterStatus, updateChapter, type Chapter, type ChapterStatus } from "./store/chapters.js";
 import type { Clip, ClipQuality } from "./store/clips.js";
 import { approveDocument, latestDocument } from "./store/documents.js";
 import { getProject, projectPaths, updateProject, type Project } from "./store/projects.js";
@@ -27,6 +28,25 @@ export interface StageStatus {
   /** What still has to happen before you can approve the stage. Empty means it is ready for you. */
   waitingOn: string[];
 }
+
+/** Work is on hold because Claude's usage limit was reached. It continues by itself. */
+export interface UsagePause {
+  since: string;
+  /** When the studio tries again. */
+  until: string;
+  /** True when Claude said when the limit lifts. False when the studio is simply trying again after a wait. */
+  known: boolean;
+  /** "limit" is the plan's usage limit; "busy" is a short overload on Claude's side. */
+  cause: "limit" | "busy";
+  /** Runs waiting for it. */
+  waiting: number;
+}
+
+const CONTINUE = `You were stopped part-way through this task by a usage limit, and can now carry on. Everything you saved through the studio tools, and every file you wrote, is still there: look at what exists first, and do not redo finished work.
+
+The task was:
+
+`;
 
 const ABOUT: Record<Project["stage"], string> = {
   outline: "The outline: what the video explains, and its chapters.",
@@ -47,6 +67,13 @@ export class Orchestrator {
   readonly runner: StudioRunner;
   private readonly aborts = new Map<string, AbortController>();
   private readonly background = new Set<Promise<unknown>>();
+  private pause?: { since: number; until: number; known: boolean; cause: "limit" | "busy"; wait: Promise<void>; open: () => void; timer?: ReturnType<typeof setTimeout> };
+  /** Pauses in a row with no run finishing in between: each one waits longer. */
+  private limitStreak = 0;
+  private waitingRuns = 0;
+  private stopped = false;
+  /** Waited on top of the time Claude names, because two clocks never quite agree. */
+  limitMarginMs = 20_000;
 
   constructor(
     readonly studio: Studio,
@@ -54,7 +81,31 @@ export class Orchestrator {
   ) {
     this.lanes = new Lanes(studio.config.studio.lanes);
     this.runner = runner ?? (studio.config.runner === "mock" ? new MockStudioRunner() : new ClaudeCliStudioRunner(studio.config.claudeBin));
-    failInterruptedRuns(studio);
+    // Another studio process may be at work in this workspace, such as the GUI while a terminal command runs. Its runs are not ours to tidy up.
+    if (claimWorkspace(studio)) {
+      failInterruptedRuns(studio);
+      this.settleInterrupted();
+    }
+  }
+
+  /** Stop everything this orchestrator started: for closing the studio. What was saved stays. */
+  stop() {
+    this.stopped = true;
+    for (const abort of this.aborts.values()) abort.abort();
+    this.endPause();
+    releaseWorkspace(this.studio);
+  }
+
+  /** After the studio was closed in the middle of work: nothing is left looking as if it were still being worked on. */
+  private settleInterrupted() {
+    const { studio } = this;
+    studio.db.run(
+      `UPDATE chapters SET status = CASE WHEN EXISTS (SELECT 1 FROM scenes WHERE scenes.chapter_id = chapters.id) THEN 'script_review' ELSE 'planned' END
+       WHERE status = 'scripting'`,
+    );
+    for (const { id } of studio.db.all<{ id: string }>("SELECT id FROM scenes WHERE status = 'in_production'")) {
+      setSceneStatus(studio, id, "failed", "The studio was closed while this scene was being built. Build it again.");
+    }
   }
 
   /** Resolves when everything started so far, and everything that work started in turn, has finished. */
@@ -106,6 +157,8 @@ export class Orchestrator {
 
   private async executeRun(runId: string, signal: AbortSignal): Promise<AgentRun> {
     const { studio } = this;
+    // A run that comes up while a usage limit is in force waits its turn here instead of running into the limit itself.
+    await this.clearToRun(signal);
     if (signal.aborted) return updateRun(studio, runId, { status: "cancelled", finishedAt: nowIso() });
     let run = updateRun(studio, runId, { status: "running", startedAt: nowIso() });
     const project = getProject(studio, run.projectId);
@@ -145,28 +198,124 @@ export class Orchestrator {
     };
     log("info", `${run.agent} started${run.payload.notes ? ` on your notes: ${run.payload.notes}` : ""}`);
     const started = Date.now();
-    try {
-      let result;
+    const once = async (attempt: typeof request & { resumeSessionId?: string }) => {
       try {
-        result = await this.runner.run(studio, { ...request, resumeSessionId: run.payload.resumeFrom });
+        return await this.runner.run(studio, attempt);
       } catch (err) {
         // A session from another computer, or one Claude Code has cleaned up, cannot be resumed. Start fresh.
-        if (!run.payload.resumeFrom || signal.aborted || !/conversation|session|resume/i.test((err as Error).message)) throw err;
+        if (!attempt.resumeSessionId || signal.aborted || err instanceof UsageLimitError || !/conversation|session|resume/i.test((err as Error).message)) throw err;
         log("info", "The earlier session could not be continued, so this run starts fresh.");
-        result = await this.runner.run(studio, request);
+        return await this.runner.run(studio, request);
       }
-      return updateRun(studio, runId, {
-        status: "done",
-        resultText: result.text,
-        claudeSessionId: result.sessionId ?? run.claudeSessionId,
-        costUsd: result.costUsd ?? null,
-        durationMs: result.durationMs ?? Date.now() - started,
-        finishedAt: nowIso(),
-      });
+    };
+    try {
+      let attempt: typeof request & { resumeSessionId?: string } = { ...request, resumeSessionId: run.payload.resumeFrom };
+      for (let tries = 1; ; tries++) {
+        try {
+          const result = await once(attempt);
+          this.limitStreak = 0;
+          return updateRun(studio, runId, {
+            status: "done",
+            resultText: result.text,
+            claudeSessionId: result.sessionId ?? run.claudeSessionId,
+            costUsd: result.costUsd ?? null,
+            durationMs: result.durationMs ?? Date.now() - started,
+            finishedAt: nowIso(),
+          });
+        } catch (err) {
+          if (!(err instanceof UsageLimitError) || signal.aborted) throw err;
+          if (tries >= studio.config.studio.usageLimit.maxTries) throw new Error(`${err.message}\nThe limit was still in place after ${tries} tries, so this run stopped. Start it again later.`);
+          // Not a failure: the run keeps its place, waits for the limit to lift and continues the same session.
+          const pause = this.pauseFor(err);
+          log("info", `${err.cause === "busy" ? "Claude is overloaded right now" : "Claude's usage limit was reached"}. This run waits and carries on by itself ${describeTime(new Date(pause.until))}. Nothing it saved is lost.`);
+          run = updateRun(studio, runId, { status: "queued" });
+          await this.clearToRun(signal);
+          if (signal.aborted) throw new Error("Cancelled");
+          run = updateRun(studio, runId, { status: "running" });
+          log("info", "Carrying on.");
+          const session = run.claudeSessionId ?? run.payload.resumeFrom;
+          attempt = session ? { ...request, prompt: CONTINUE + request.prompt, resumeSessionId: session } : { ...request };
+        }
+      }
     } catch (err) {
       const message = (err as Error).message;
       log("error", message);
       return updateRun(studio, runId, { status: signal.aborted ? "cancelled" : "failed", error: message, durationMs: Date.now() - started, finishedAt: nowIso() });
+    }
+  }
+
+  // ---------- Usage limits ----------
+
+  /** The pause in force, if work is on hold for a usage limit. */
+  usagePause(): UsagePause | null {
+    const p = this.pause;
+    return p ? { since: new Date(p.since).toISOString(), until: new Date(p.until).toISOString(), known: p.known, cause: p.cause, waiting: this.waitingRuns } : null;
+  }
+
+  /** Do not wait any longer: let the waiting runs try now. If the limit is still there, they pause again. */
+  resumeNow() {
+    this.endPause();
+  }
+
+  /** Put everything that needs Claude on hold until the limit lifts. Runs that hit the same limit share one pause. */
+  private pauseFor(err: UsageLimitError) {
+    const now = Date.now();
+    const known = Boolean(err.resetAt && err.resetAt.getTime() > now);
+    const retry = this.studio.config.studio.usageLimit.retryMinutes;
+    const base = err.cause === "busy" ? Math.min(2, retry) : retry;
+    const until = known ? err.resetAt!.getTime() + this.limitMarginMs : now + Math.min(base * 2 ** this.limitStreak, Math.max(60, base)) * 60_000;
+    if (this.pause) {
+      // A stated reset time beats a guess, and the later of two stated times is the one to wait for.
+      if (known && (!this.pause.known || until > this.pause.until)) {
+        this.pause.until = until;
+        this.pause.known = true;
+        this.pause.cause = err.cause;
+        this.watchPause();
+      }
+      return this.pause;
+    }
+    this.limitStreak++;
+    let open!: () => void;
+    const wait = new Promise<void>((resolve) => (open = resolve));
+    this.pause = { since: now, until, known, cause: err.cause, wait, open };
+    // Every project waits on the same limit, so every open page hears about it.
+    this.studio.emit("usage.paused", { data: { until: new Date(until).toISOString(), known, cause: err.cause } });
+    this.watchPause();
+    return this.pause;
+  }
+
+  /** Looks at the clock every so often, not once, so a computer that slept through the reset still wakes the work up. */
+  private watchPause() {
+    const p = this.pause;
+    if (!p) return;
+    clearTimeout(p.timer);
+    const left = p.until - Date.now();
+    if (left <= 0) return this.endPause();
+    p.timer = setTimeout(() => this.watchPause(), Math.min(left, 30_000));
+  }
+
+  private endPause() {
+    const p = this.pause;
+    if (!p) return;
+    clearTimeout(p.timer);
+    this.pause = undefined;
+    p.open();
+    if (!this.stopped) this.studio.emit("usage.resumed", {});
+  }
+
+  /** Resolves when no usage limit is holding work back, or when the run is cancelled. */
+  private async clearToRun(signal: AbortSignal) {
+    while (this.pause && !signal.aborted) {
+      let cancel!: () => void;
+      const cancelled = new Promise<void>((resolve) => (cancel = resolve));
+      signal.addEventListener("abort", cancel, { once: true });
+      this.waitingRuns++;
+      try {
+        await Promise.race([this.pause.wait, cancelled]);
+      } finally {
+        this.waitingRuns--;
+        signal.removeEventListener("abort", cancel);
+      }
     }
   }
 
@@ -204,6 +353,10 @@ export class Orchestrator {
         }
         break;
       case "scenes": {
+        for (const c of listChapters(studio, projectId)) {
+          if (c.status === "scripting") waitingOn.push(`The scene list of chapter ${c.position}, "${c.title}", is being rewritten.`);
+          if (c.status === "script_review") waitingOn.push(`The scene list of chapter ${c.position}, "${c.title}", is waiting for your approval.`);
+        }
         const open = scenes.filter((s) => s.status !== "approved");
         if (open.length) waitingOn.push(`${open.length} of ${scenes.length} scenes are not approved yet.`);
         break;
@@ -212,8 +365,12 @@ export class Orchestrator {
         if (!studio.db.get("SELECT 1 FROM renders WHERE project_id = ? AND kind = 'final' AND scope = 'project'", [projectId])) waitingOn.push("The final video has not been rendered yet.");
         break;
     }
-    if (active.length && project.stage !== "scenes") waitingOn.unshift(`${active.length} run(s) still working.`);
-    return { stage: project.stage, about: ABOUT[project.stage], running: active.length, waitingOn };
+    // Scenes of an approved chapter are built while later chapters are still being written, so scene runs never hold a stage back.
+    const planning = active.filter((r) => r.targetKind !== "scene");
+    if (planning.length && project.stage !== "scenes") waitingOn.unshift(`${planning.length} run(s) still working.`);
+    // While scene lists are being written, the scenes of chapters already approved are built alongside; those runs belong to the next stage.
+    const running = project.stage === "chapters" ? planning.length : active.length;
+    return { stage: project.stage, about: ABOUT[project.stage], running, waitingOn };
   }
 
   /** Start, or start again, the work of the project's current stage. `notes` asks for changes to what exists. */
@@ -234,10 +391,14 @@ export class Orchestrator {
       case "foundation":
         return listShared(studio, projectId).length ? [this.startRun({ projectId, kind: "foundation", notes })] : [];
       case "chapters": {
-        const scenes = listScenes(studio, projectId);
-        return listChapters(studio, projectId)
-          .filter((c) => notes || !scenes.some((s) => s.chapterId === c.id))
-          .map((c) => this.startRun({ projectId, kind: "chapter", targetId: c.id, notes }));
+        // With notes: every scene list not yet approved is written again. Without: carry on with the next unwritten chapter.
+        if (notes) {
+          return listChapters(studio, projectId)
+            .filter((c) => c.status === "planned" || c.status === "script_review")
+            .map((c) => this.scriptChapter(c.id, notes));
+        }
+        const run = this.scriptNextChapter(projectId);
+        return run ? [run] : [];
       }
       case "scenes":
         this.detach(projectId, this.produce(projectId));
@@ -247,10 +408,81 @@ export class Orchestrator {
     }
   }
 
-  /** Write one chapter's scene list again, with your notes. */
+  // ---------- Chapters ----------
+
+  /**
+   * Write the scene list of the first chapter that has none. Chapters are written one after
+   * another, so each can read what the ones before it said, and so the first is ready for
+   * review while the rest are still to come.
+   */
+  private scriptNextChapter(projectId: string): AgentRun | undefined {
+    const { studio } = this;
+    if (getProject(studio, projectId).stage !== "chapters") return undefined;
+    if (listRuns(studio, projectId, { active: true }).some((r) => r.targetKind === "chapter" && r.task === "build")) return undefined;
+    const scenes = listScenes(studio, projectId);
+    const next = listChapters(studio, projectId).find((c) => !scenes.some((s) => s.chapterId === c.id));
+    return next ? this.scriptChapter(next.id) : undefined;
+  }
+
+  private scriptChapter(chapterId: string, notes?: string): AgentRun {
+    const { studio } = this;
+    const chapter = getChapter(studio, chapterId);
+    const building = listRuns(studio, chapter.projectId, { active: true }).filter((r) => r.targetKind === "scene" && getScene(studio, r.targetId!).chapterId === chapterId);
+    if (building.length) throw new Error("Scenes of this chapter are being built right now. Wait for them to finish, or cancel them, before changing its scene list.");
+    const before = chapter.status;
+    const run = this.startRun({ projectId: chapter.projectId, kind: "chapter", targetId: chapterId, notes }, (finished) => this.afterChapterRun(finished, before));
+    updateChapter(studio, chapterId, { status: "scripting" });
+    return run;
+  }
+
+  private afterChapterRun(run: AgentRun, before: ChapterStatus) {
+    const { studio } = this;
+    const chapterId = run.targetId!;
+    const written = listScenes(studio, run.projectId, chapterId).length > 0;
+    const wasApproved = before === "in_production" || before === "done";
+    // A list that was written or changed is looked at again before anything is built from it. A run that failed leaves the chapter as it was.
+    const status: ChapterStatus = !written ? "planned" : run.status !== "done" && wasApproved ? before : "script_review";
+    updateChapter(studio, chapterId, { status });
+    syncChapterStatus(studio, chapterId);
+    if (run.status === "done" && written) this.scriptNextChapter(run.projectId);
+  }
+
+  /** Write one chapter's scene list again, with your notes. An approved list goes back up for your approval. */
   reviseChapter(chapterId: string, notes: string): AgentRun {
+    return this.scriptChapter(chapterId, notes);
+  }
+
+  /**
+   * Approve one chapter's scene list. Its narration is recorded and its scenes are built
+   * straight away, while later chapters are still being written.
+   */
+  approveChapter(chapterId: string): Chapter {
+    const { studio } = this;
+    const chapter = getChapter(studio, chapterId);
+    const project = getProject(studio, chapter.projectId);
+    if (project.stage !== "chapters" && project.stage !== "scenes") throw new Error("Scene lists are approved after the outline, the bible and the shared components.");
+    if (chapter.status === "in_production" || chapter.status === "done") throw new Error("This chapter's scene list is already approved.");
+    if (listRuns(studio, project.id, { active: true }).some((r) => r.targetKind === "chapter" && r.targetId === chapterId)) throw new Error("This chapter's scene list is still being written.");
+    if (!listScenes(studio, project.id, chapterId).length) throw new Error("This chapter has no scenes yet.");
+    updateChapter(studio, chapterId, { status: "in_production" });
+    // With the last scene list approved, planning is over.
+    if (project.stage === "chapters" && listChapters(studio, project.id).every((c) => c.status === "in_production" || c.status === "done")) {
+      updateProject(studio, project.id, { stage: "scenes" });
+    }
+    this.detach(project.id, this.produce(project.id, chapterId));
+    return syncChapterStatus(studio, chapterId);
+  }
+
+  /** Build the scenes of an approved chapter that are not built yet, or that failed. */
+  buildChapter(chapterId: string) {
     const chapter = getChapter(this.studio, chapterId);
-    return this.startRun({ projectId: chapter.projectId, kind: "chapter", targetId: chapterId, notes });
+    if (chapter.status !== "in_production" && chapter.status !== "done") throw new Error("Approve this chapter's scene list first.");
+    this.detach(chapter.projectId, this.produce(chapter.projectId, chapterId));
+  }
+
+  /** Join one chapter's scenes into a video to watch, using each scene as it stands now. */
+  previewChapter(chapterId: string): Promise<AssembleResult> {
+    return this.assemble(getChapter(this.studio, chapterId).projectId, { chapterId, quality: "preview" });
   }
 
   /** Approve the current stage and start the next one. Only people call this. */
@@ -274,7 +506,10 @@ export class Orchestrator {
         next("chapters");
         break;
       case "chapters":
-        for (const c of listChapters(studio, projectId)) updateChapter(studio, c.id, { status: "in_production" });
+        // Approves every scene list that has not been approved chapter by chapter.
+        for (const c of listChapters(studio, projectId)) {
+          if (c.status !== "in_production" && c.status !== "done") updateChapter(studio, c.id, { status: "in_production" });
+        }
         next("scenes");
         break;
       case "scenes":
@@ -293,13 +528,19 @@ export class Orchestrator {
 
   // ---------- Scenes ----------
 
-  /** Record narration for every scene in one pass, then build each scene that has not been built. */
-  async produce(projectId: string) {
+  /**
+   * Record narration in one pass, then build each scene that has not been built: for one
+   * chapter, or for every chapter whose scene list is approved.
+   */
+  async produce(projectId: string, chapterId?: string) {
     const { studio } = this;
-    const scenes = listScenes(studio, projectId);
-    await this.lanes.run("light", () => ensureVoice(studio, scenes.map((s) => s.id)));
+    const ready = () => {
+      const unapproved = new Set(listChapters(studio, projectId).filter((c) => c.status === "scripting" || c.status === "script_review").map((c) => c.id));
+      return listScenes(studio, projectId, chapterId).filter((s) => !unapproved.has(s.chapterId));
+    };
+    await this.lanes.run("light", () => ensureVoice(studio, ready().map((s) => s.id)));
     const active = new Set(listRuns(studio, projectId, { active: true }).map((r) => r.targetId));
-    for (const scene of listScenes(studio, projectId)) {
+    for (const scene of ready()) {
       if (active.has(scene.id)) continue;
       if (scene.status === "planned" || scene.status === "spec_ready" || scene.status === "failed") this.buildScene(scene.id);
     }
@@ -362,6 +603,21 @@ export class Orchestrator {
     });
   }
 
+  /**
+   * Bring every out-of-date scene up to date in one go. Each is rendered again with the
+   * shared components as they are now, and goes back up for your review. No agent runs.
+   */
+  rebuildStale(projectId: string): string[] {
+    const { studio } = this;
+    const stale = listScenes(studio, projectId).filter((s) => s.status === "stale");
+    for (const scene of stale) {
+      // Marked first, so asking twice does not render twice.
+      setSceneStatus(studio, scene.id, "in_production");
+      void this.track(this.renderScene(scene.id)).catch(() => undefined); // renderScene marks the scene failed, with the reason.
+    }
+    return stale.map((s) => s.id);
+  }
+
   /** The clip with its narration, for watching in the GUI. Clips themselves stay silent so they can be joined. */
   private async reviewCopy(sceneId: string, clip: Clip) {
     const { studio } = this;
@@ -378,7 +634,7 @@ export class Orchestrator {
   /** Join the scenes into the video. Scenes whose clips are missing are rendered first. */
   assemble(projectId: string, opts: Omit<AssembleOptions, "onProgress" | "log"> = {}): Promise<AssembleResult> {
     return this.job(projectId, "assemble", opts.chapterId ?? null, (progress) =>
-      assemble(this.studio, projectId, { ...opts, onProgress: (done, total) => progress(total ? done / total : 0) }),
+      assemble(this.studio, projectId, { ...opts, concurrency: this.studio.config.studio.lanes.renders, onProgress: (done, total) => progress(total ? done / total : 0) }),
     );
   }
 
@@ -412,5 +668,48 @@ export class Orchestrator {
         }
       }),
     );
+  }
+}
+
+// ---------- One studio at work per workspace ----------
+
+const ownerFile = (studio: Studio) => path.join(studio.workspaceDir, "studio.owner");
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // No permission to signal it still means it exists.
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Note that this process runs the workspace's work. False when another live process already
+ * does: then this one is a visitor, and must not treat that process's runs as abandoned.
+ */
+function claimWorkspace(studio: Studio): boolean {
+  const file = ownerFile(studio);
+  try {
+    const pid = Number(fs.readFileSync(file, "utf8").trim());
+    if (pid && pid !== process.pid && alive(pid)) return false;
+  } catch {
+    // No owner yet.
+  }
+  try {
+    fs.writeFileSync(file, String(process.pid));
+  } catch {
+    // A workspace that cannot be written to will say so soon enough.
+  }
+  return true;
+}
+
+function releaseWorkspace(studio: Studio) {
+  const file = ownerFile(studio);
+  try {
+    if (Number(fs.readFileSync(file, "utf8").trim()) === process.pid) fs.rmSync(file);
+  } catch {
+    // Already gone.
   }
 }

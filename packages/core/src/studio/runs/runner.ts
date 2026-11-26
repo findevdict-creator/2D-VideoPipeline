@@ -7,6 +7,7 @@ import type { Studio } from "../studio.js";
 import type { Project } from "../store/projects.js";
 import { projectPaths } from "../store/projects.js";
 import type { AgentRun, RunLogLine } from "../store/runs.js";
+import { parseUsageLimit, UsageLimitError } from "./limits.js";
 
 export interface StudioRunRequest {
   run: AgentRun;
@@ -33,7 +34,10 @@ export interface StudioRunResult {
   durationMs?: number;
 }
 
-/** Something that carries out one run: Claude Code, or a stand-in for tests. */
+/**
+ * Something that carries out one run: Claude Code, or a stand-in for tests. When Claude's
+ * usage limit stops a run, `run` throws a UsageLimitError and the studio waits and continues.
+ */
 export interface StudioRunner {
   readonly kind: string;
   run(studio: Studio, request: StudioRunRequest): Promise<StudioRunResult>;
@@ -112,6 +116,9 @@ export class ClaudeCliStudioRunner implements StudioRunner {
       let stderr = "";
       let result: { result?: string; is_error?: boolean; subtype?: string; total_cost_usd?: number; duration_ms?: number; session_id?: string } | undefined;
       let sessionId: string | undefined;
+      /** What Claude Code itself reported about limits while it ran. */
+      let refused: { resetsAt?: number } | undefined;
+      let apiError: string | undefined;
       const onLine = (line: string) => {
         if (!line.trim()) return;
         let event: any;
@@ -124,7 +131,9 @@ export class ClaudeCliStudioRunner implements StudioRunner {
           sessionId = event.session_id as string;
           req.onSession(sessionId);
         }
+        if (event.type === "rate_limit_event" && event.rate_limit_info?.status === "rejected") refused = event.rate_limit_info;
         if (event.type === "assistant") {
+          if (typeof event.error === "string") apiError = event.error;
           for (const block of event.message?.content ?? []) {
             if (block.type === "text" && block.text?.trim()) req.onLog("text", block.text.trim());
             if (block.type === "tool_use") req.onLog("tool", describeToolUse(block.name, block.input));
@@ -153,6 +162,8 @@ export class ClaudeCliStudioRunner implements StudioRunner {
         if (req.signal?.aborted) return reject(new Error("Cancelled"));
         if (code !== 0 || !result || result.is_error) {
           const detail = result?.result ?? (stderr.trim() || `exit code ${code}`);
+          const limit = usageLimitFrom(detail, refused, apiError);
+          if (limit) return reject(new UsageLimitError(`Claude stopped at a usage limit: ${detail}`, limit.resetAt, limit.cause));
           return reject(new Error(`Claude stopped with an error: ${detail}`));
         }
         resolve({ text: result.result ?? "", sessionId: result.session_id ?? sessionId, costUsd: result.total_cost_usd, durationMs: result.duration_ms });
@@ -160,6 +171,18 @@ export class ClaudeCliStudioRunner implements StudioRunner {
       child.stdin.end(req.prompt);
     });
   }
+}
+
+/** Whether a failed run failed because of a usage limit, going by what Claude Code reported and by its last words. */
+export function usageLimitFrom(detail: string, refused?: { resetsAt?: number }, apiError?: string): { cause: "limit" | "busy"; resetAt?: Date } | undefined {
+  const said = parseUsageLimit(detail);
+  if (refused || apiError === "rate_limit") {
+    // The reset time arrives as seconds since 1970.
+    const at = refused?.resetsAt ? new Date(refused.resetsAt < 1e12 ? refused.resetsAt * 1000 : refused.resetsAt) : undefined;
+    return { cause: "limit", resetAt: at ?? said?.resetAt };
+  }
+  if (apiError === "overloaded") return { cause: "busy" };
+  return said;
 }
 
 function describeToolUse(name: string, input: unknown): string {

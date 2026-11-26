@@ -104,3 +104,15 @@ export function updateChapter(studio: Studio, id: string, patch: Partial<Pick<Ch
   studio.emit("chapter.changed", { projectId: c.projectId, targetId: id });
   return getChapter(studio, id);
 }
+
+/**
+ * Keep a chapter whose scene list is approved in step with its scenes: "done" once every
+ * scene is approved, "in_production" while any of them still needs work.
+ */
+export function syncChapterStatus(studio: Studio, chapterId: string): Chapter {
+  const chapter = getChapter(studio, chapterId);
+  if (chapter.status !== "in_production" && chapter.status !== "done") return chapter;
+  const count = studio.db.get<{ n: number; approved: number | null }>("SELECT COUNT(*) AS n, SUM(status = 'approved') AS approved FROM scenes WHERE chapter_id = ?", [chapterId])!;
+  const next: ChapterStatus = count.n > 0 && count.approved === count.n ? "done" : "in_production";
+  return next === chapter.status ? chapter : updateChapter(studio, chapterId, { status: next });
+}

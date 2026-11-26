@@ -23,8 +23,10 @@ Usage:
   npm run studio -- status <project>                 where the project stands and what it is waiting on
   npm run studio -- start <project>                  run the current stage's work (--notes to ask for changes)
   npm run studio -- approve <project>                approve the current stage and start the next one
+  npm run studio -- approve-chapter <project> <number>   approve one chapter's scene list and build its scenes
   npm run studio -- approve-scene <project> <scene|all>
   npm run studio -- revise <project> <scene> --notes "<what to change>"
+  npm run studio -- refresh <project>                render every out-of-date scene again, after a shared part changed
   npm run studio -- projects                         list projects in the workspace
   npm run studio -- import <production-folder>       bring a pipeline production in as a project
   npm run studio -- scenes <project>                 list a project's scenes and their status
@@ -33,7 +35,7 @@ Usage:
   npm run studio -- check <project> <scene>          report what would stop a scene from rendering
   npm run studio -- stills <project> <scene>         render still frames of a scene for a quick look
   npm run studio -- render <project> [scene...]      render scene clips (all scenes when none is named)
-  npm run studio -- assemble <project>               join the scene clips into one video
+  npm run studio -- assemble <project>               join the scene clips into one video (--chapter <number> for one chapter)
 
 A scene is named by its label, such as 1.3, or by its id.
 
@@ -97,22 +99,31 @@ async function run(studio: Studio, command: string, rest: string[], flags: { fin
   }
   if (command === "status") {
     const project = getProject(studio, required(rest[0], "project"));
-    printStatus(studio, new Orchestrator(studio), project.id);
+    const o = new Orchestrator(studio);
+    printStatus(studio, o, project.id);
+    o.stop();
     return;
   }
-  if (command === "start" || command === "approve" || command === "approve-scene" || command === "revise") {
+  if (command === "start" || command === "approve" || command === "approve-chapter" || command === "approve-scene" || command === "revise" || command === "refresh") {
     const project = getProject(studio, required(rest[0], "project"));
     const o = new Orchestrator(studio);
     if (command === "start") o.startStage(project.id, flags.notes);
     if (command === "approve") console.log(`Approved. The project is now at: ${o.approveStage(project.id, flags.notes).stage}`);
+    if (command === "approve-chapter") {
+      const chapter = chapterByNumber(studio, project.id, required(rest[1], "chapter number"));
+      o.approveChapter(chapter.id);
+      console.log(`Approved the scene list of chapter ${chapter.position}, "${chapter.title}". Building its scenes.`);
+    }
     if (command === "approve-scene") {
       const which = required(rest[1], "scene");
       const scenes = which === "all" ? listScenes(studio, project.id).filter((s) => s.status === "needs_review") : [findScene(studio, project.id, which)];
       for (const scene of scenes) console.log(`Approved ${sceneLabel(studio, o.approveScene(scene.id, flags.notes))} ${scene.title}`);
     }
+    if (command === "refresh") console.log(`Rendering ${o.rebuildStale(project.id).length} out-of-date scene(s) again.`);
     if (command === "revise") o.reviseScene(findScene(studio, project.id, required(rest[1], "scene")).id, required(flags.notes, "--notes"));
     await follow(studio, o, project.id);
     printStatus(studio, o, project.id);
+    o.stop();
     return;
   }
   if (command === "projects") {
@@ -203,8 +214,7 @@ async function run(studio: Studio, command: string, rest: string[], flags: { fin
   }
   if (command === "assemble") {
     const project = getProject(studio, required(rest[0], "project"));
-    const chapter = flags.chapter ? listChapters(studio, project.id).find((c) => String(c.position) === flags.chapter) : undefined;
-    if (flags.chapter && !chapter) throw new Error(`There is no chapter ${flags.chapter} in this project.`);
+    const chapter = flags.chapter ? chapterByNumber(studio, project.id, flags.chapter) : undefined;
     const result = await assemble(studio, project.id, { quality, chapterId: chapter?.id, log });
     console.log(`${result.rendered} clip(s) rendered, ${result.reused} reused. ${result.render.durationSec.toFixed(1)}s video: ${result.file}`);
     for (const s of result.skipped) console.log(`Left out ${s.label} ${s.title}: ${s.reason}`);
@@ -238,6 +248,9 @@ async function serveStudio(values: { workspace?: string; runner?: string; model?
     process.once("SIGTERM", stop);
   });
   await server.close();
+  // Claude runs started from here end with the studio. What they saved stays, and they can be started again.
+  server.orchestrator.stop();
+  await Promise.race([server.orchestrator.idle(), new Promise((r) => setTimeout(r, 3000))]);
   studio.close();
 }
 
@@ -273,11 +286,29 @@ async function follow(studio: Studio, o: Orchestrator, projectId: string) {
   print();
 }
 
+function chapterByNumber(studio: Studio, projectId: string, number: string) {
+  const chapter = listChapters(studio, projectId).find((c) => String(c.position) === number);
+  if (!chapter) throw new Error(`There is no chapter ${number} in this project.`);
+  return chapter;
+}
+
+const CHAPTER_STATUS: Record<string, string> = {
+  planned: "not written yet",
+  scripting: "being written",
+  script_review: "scene list waiting for your approval",
+  in_production: "in production",
+  done: "done",
+};
+
 function printStatus(studio: Studio, o: Orchestrator, projectId: string) {
   const status = o.stageStatus(projectId);
   console.log(`\nStage: ${status.stage}. ${status.about}`);
-  for (const scene of listScenes(studio, projectId)) {
-    console.log(`  ${sceneLabel(studio, scene).padEnd(6)} ${scene.type.padEnd(13)} ${scene.status.padEnd(14)} ${scene.title}${scene.staleReason ? `  (${scene.staleReason})` : ""}`);
+  const scenes = listScenes(studio, projectId);
+  for (const chapter of listChapters(studio, projectId)) {
+    console.log(`Chapter ${chapter.position}: ${chapter.title}  (${CHAPTER_STATUS[chapter.status] ?? chapter.status})`);
+    for (const scene of scenes.filter((s) => s.chapterId === chapter.id)) {
+      console.log(`  ${sceneLabel(studio, scene).padEnd(6)} ${scene.type.padEnd(13)} ${scene.status.padEnd(14)} ${scene.title}${scene.staleReason ? `  (${scene.staleReason})` : ""}`);
+    }
   }
   if (status.waitingOn.length) console.log(`Waiting on:\n  - ${status.waitingOn.join("\n  - ")}`);
   else if (status.stage !== "done") console.log("Ready for you to approve.");

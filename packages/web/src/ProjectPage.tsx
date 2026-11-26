@@ -3,7 +3,7 @@ import { api, listen, type Asset, type Snapshot } from "./api";
 import { Markdown } from "./markdown";
 import { RunLog } from "./RunLog";
 import { SceneDrawer } from "./SceneDrawer";
-import { ago, Chip, duration, Link, NotesBox, RUN_KIND, RUN_STATUS, SCENE_STATUS, STAGES, TYPE_NAME, useAction, useRoute, useToast } from "./ui";
+import { ago, CHAPTER_STATUS, Chip, duration, Link, NotesBox, RUN_KIND, RUN_STATUS, SCENE_STATUS, STAGES, TYPE_NAME, useAction, useRoute, useToast } from "./ui";
 
 const TABS = [
   { id: "plan", name: "Plan" },
@@ -76,6 +76,7 @@ export function ProjectPage({ slug, tab }: { slug: string; tab?: string }) {
           </p>
         </div>
       </div>
+      {snap.usage && <UsageBanner usage={snap.usage} />}
       <StageBar
         snap={snap}
         onChanged={() => {
@@ -103,6 +104,28 @@ export function ProjectPage({ slug, tab }: { slug: string; tab?: string }) {
 
       {openScene && <SceneDrawer sceneId={openScene} snapshot={snap} refreshKey={version} onClose={() => setOpenScene(undefined)} />}
     </main>
+  );
+}
+
+// ---------- Claude's usage limit ----------
+
+function UsageBanner({ usage }: { usage: NonNullable<Snapshot["usage"]> }) {
+  const [busy, act] = useAction();
+  const until = new Date(usage.until);
+  const today = until.toDateString() === new Date().toDateString();
+  const when = `${today ? "at" : `on ${until.toLocaleDateString([], { weekday: "long" })} at`} ${until.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+  const runs = usage.waiting === 1 ? "1 run is" : `${usage.waiting} runs are`;
+  return (
+    <section className="notice notice-warn usage">
+      <div>
+        <strong>{usage.cause === "busy" ? "Claude is overloaded right now." : "Claude's usage limit was reached."}</strong>{" "}
+        {usage.known ? `${runs} waiting and will carry on by ${usage.waiting === 1 ? "itself" : "themselves"} ${when}, when the limit lifts.` : `${runs} waiting. Claude did not say when the limit lifts, so the studio tries again ${when}.`}{" "}
+        Nothing is lost, and you can keep reviewing and rendering in the meantime.
+      </div>
+      <button className="btn" disabled={busy} onClick={() => act(() => api.resumeUsage())}>
+        Try now
+      </button>
+    </section>
   );
 }
 
@@ -141,6 +164,9 @@ function StageBar({ snap, onChanged }: { snap: Snapshot; onChanged: () => void }
               <span className="spinner" /> Claude is working on it. You can watch under Activity.
             </p>
           )}
+          {working && stage.stage === "chapters" && snap.chapters.some((c) => c.status === "script_review") && (
+            <p>You do not have to wait for the rest: a chapter whose scene list is ready can be approved under Scenes, and its scenes are built while the others are written.</p>
+          )}
           {!working && ready && !done && <p>Ready for you. Look it over, then approve it or ask for changes.</p>}
           {stage.stage === "scenes" && !ready && <p>Open a scene to watch it, then approve it or say what should change. Each scene is rebuilt on its own.</p>}
           {!working && !ready && (
@@ -156,7 +182,7 @@ function StageBar({ snap, onChanged }: { snap: Snapshot; onChanged: () => void }
           <div className="stage-actions">
             {ready && !working && (
               <button className="btn btn-primary" disabled={busy} onClick={() => act(async () => (await api.approveStage(slug), onChanged()))}>
-                {stage.stage === "assembly" ? "Mark the video finished" : "Approve and continue"}
+                {stage.stage === "assembly" ? "Mark the video finished" : stage.stage === "chapters" ? "Approve every scene list and build" : "Approve and continue"}
               </button>
             )}
             {canAsk && !asking && (
@@ -343,38 +369,144 @@ function SharedTab({ snap }: { snap: Snapshot }) {
 
 // ---------- Scenes ----------
 
+const SCENE_FILTERS: { id: string; name: string; statuses?: string[] }[] = [
+  { id: "all", name: "Every scene" },
+  { id: "review", name: "Needs your review", statuses: ["needs_review", "rendered"] },
+  { id: "working", name: "Being built", statuses: ["in_production", "spec_ready"] },
+  { id: "attention", name: "Failed or out of date", statuses: ["failed", "stale"] },
+  { id: "approved", name: "Approved", statuses: ["approved"] },
+];
+
 function ScenesTab({ snap, open, onOpen }: { snap: Snapshot; open?: string; onOpen: (id: string) => void }) {
   const [busy, act] = useAction();
   const [revising, setRevising] = useState<string>();
+  const [watching, setWatching] = useState<string>();
+  const [folded, setFolded] = useState<Record<string, boolean>>({});
+  const [filter, setFilter] = useState("all");
   if (!snap.chapters.length) return <p className="muted">Scenes come after the outline: each chapter gets its scene list, and you approve the list before anything is built.</p>;
   const planning = snap.project.stage === "chapters";
+  const statuses = SCENE_FILTERS.find((f) => f.id === filter)?.statuses;
+  const jobs = snap.jobs as { id: string; kind: string; targetId: string | null; status: string; progress: number }[];
+  const many = snap.chapters.length > 2;
+  const stale = snap.scenes.filter((s) => s.status === "stale");
   return (
     <>
-      {planning && <p className="muted lead">This is the scene list. Open a scene to edit its narration or type by hand, or ask Claude to rewrite a chapter. Nothing is built until you approve the list.</p>}
+      {planning && (
+        <p className="muted lead">
+          Scene lists are written one chapter after another. Open a scene to edit its narration or type by hand, or ask Claude to rewrite a chapter. Approve a chapter's list and its scenes are built straight away, while later chapters are still being
+          written.
+        </p>
+      )}
+      {stale.length > 0 && (
+        <section className="notice notice-warn usage">
+          <div>
+            <strong>{stale.length === 1 ? "1 scene is out of date." : `${stale.length} scenes are out of date.`}</strong> {[...new Set(stale.map((s) => s.reason).filter(Boolean))].join(". ")}
+            {". "}Rendering them again draws them with the shared parts as they are now, and puts them back up for your review.
+          </div>
+          <button className="btn" disabled={busy} onClick={() => act(() => api.rebuildStale(snap.project.slug))}>
+            {stale.length === 1 ? "Render it again" : `Render all ${stale.length} again`}
+          </button>
+        </section>
+      )}
+      <div className="row wrap centred board-tools">
+        {many && (
+          <nav className="chapter-strip">
+            {snap.chapters.map((c) => {
+              const scenes = snap.scenes.filter((s) => s.chapterId === c.id);
+              const approved = scenes.filter((s) => s.status === "approved").length;
+              const tone = (CHAPTER_STATUS[c.status] ?? { tone: "quiet" }).tone;
+              return (
+                <a key={c.id} href={`#chapter-${c.position}`} className={`chip chip-${tone}`} title={`${c.title}: ${(CHAPTER_STATUS[c.status] ?? { label: c.status }).label}`}>
+                  {c.position}
+                  {scenes.length > 0 && c.status !== "planned" && c.status !== "scripting" ? ` · ${approved}/${scenes.length}` : ""}
+                </a>
+              );
+            })}
+          </nav>
+        )}
+        <span className="grow" />
+        {snap.scenes.length > 0 && (
+          <label className="check small">
+            Show
+            <select value={filter} onChange={(e) => setFilter(e.target.value)}>
+              {SCENE_FILTERS.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.name}
+                  {f.statuses ? ` (${snap.scenes.filter((s) => f.statuses!.includes(s.status)).length})` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
       {snap.chapters.map((chapter) => {
-        const scenes = snap.scenes.filter((s) => s.chapterId === chapter.id);
-        const words = scenes.reduce((n, s) => n + s.narration.split(/\s+/).filter(Boolean).length, 0);
+        const all = snap.scenes.filter((s) => s.chapterId === chapter.id);
+        const scenes = statuses ? all.filter((s) => statuses.includes(s.status)) : all;
+        if (statuses && !scenes.length) return null;
+        const words = all.reduce((n, s) => n + s.narration.split(/\s+/).filter(Boolean).length, 0);
         const run = snap.runs.find((r) => r.targetKind === "chapter" && r.targetId === chapter.id && (r.status === "running" || r.status === "queued"));
+        const status = CHAPTER_STATUS[chapter.status] ?? { label: chapter.status, tone: "quiet" };
+        const approvedList = chapter.status === "in_production" || chapter.status === "done";
+        const approved = all.filter((s) => s.status === "approved").length;
+        const building = all.some((s) => s.status === "in_production");
+        const unbuilt = all.filter((s) => ["planned", "spec_ready", "failed"].includes(s.status)).length;
+        const built = all.filter((s) => s.current?.hasClip).length;
+        const joining = jobs.find((j) => j.kind === "assemble" && j.targetId === chapter.id && (j.status === "running" || j.status === "queued"));
+        const isFolded = folded[chapter.id] ?? false;
         return (
-          <section key={chapter.id} className="chapter">
-            <div className="row">
+          <section key={chapter.id} className="chapter" id={`chapter-${chapter.position}`}>
+            <div className="row centred">
+              <button className="fold" aria-expanded={!isFolded} title={isFolded ? "Show this chapter's scenes" : "Hide this chapter's scenes"} onClick={() => setFolded((f) => ({ ...f, [chapter.id]: !isFolded }))}>
+                {isFolded ? "▸" : "▾"}
+              </button>
               <h3>
                 {chapter.position}. {chapter.title}
               </h3>
-              <span className="muted small">
-                {scenes.length} scenes · about {duration((words / 150) * 60)} of {duration(chapter.targetDurationSec)}
-              </span>
+              {(planning || approvedList || chapter.status === "scripting" || chapter.status === "script_review") && <Chip tone={status.tone}>{approvedList && all.length ? `${status.label} · ${approved} of ${all.length} approved` : status.label}</Chip>}
+              {all.length > 0 && (
+                <span className="muted small">
+                  {all.length} scenes · about {duration((words / 150) * 60)} of {duration(chapter.targetDurationSec)}
+                </span>
+              )}
               {run && (
                 <span className="busy-line">
                   <span className="spinner" /> being written
                 </span>
               )}
-              {planning && !run && scenes.length > 0 && revising !== chapter.id && (
+            </div>
+            <div className="row wrap centred chapter-actions">
+              {chapter.status === "script_review" && !run && (
+                <button className="btn btn-primary" disabled={busy} onClick={() => act(() => api.approveChapter(chapter.id))}>
+                  Approve this scene list and build it
+                </button>
+              )}
+              {approvedList && unbuilt > 0 && !building && (
+                <button className="btn" disabled={busy} onClick={() => act(() => api.buildChapter(chapter.id))}>
+                  Build the remaining {unbuilt === 1 ? "scene" : `${unbuilt} scenes`}
+                </button>
+              )}
+              {approvedList && built > 0 && !joining && (
+                <button className="btn" disabled={busy} onClick={() => act(() => api.previewChapter(chapter.id))}>
+                  {chapter.preview ? "Make a new chapter preview" : "Preview this chapter"}
+                </button>
+              )}
+              {joining && (
+                <span className="busy-line">
+                  <span className="spinner" /> joining the chapter preview
+                </span>
+              )}
+              {chapter.preview?.url && (
+                <button className="link" onClick={() => setWatching(watching === chapter.id ? undefined : chapter.id)}>
+                  {watching === chapter.id ? "Hide the preview" : `Watch the preview (${duration(chapter.preview.durationSec)}${chapter.preview.current ? "" : ", scenes changed since"})`}
+                </button>
+              )}
+              {!run && all.length > 0 && !building && revising !== chapter.id && (
                 <button className="link" onClick={() => setRevising(chapter.id)}>
-                  Ask for changes to this chapter
+                  Ask for changes to this scene list
                 </button>
               )}
             </div>
+            {watching === chapter.id && chapter.preview?.url && <video className="player" src={chapter.preview.url} controls />}
             {revising === chapter.id && (
               <NotesBox
                 label="Send to Claude"
@@ -386,26 +518,28 @@ function ScenesTab({ snap, open, onOpen }: { snap: Snapshot; open?: string; onOp
                 }}
               />
             )}
-            <div className="grid scenes">
-              {scenes.map((scene) => {
-                const status = SCENE_STATUS[scene.status] ?? { label: scene.status, tone: "quiet" };
-                const still = scene.current?.stills.at(-1)?.url;
-                return (
-                  <button key={scene.id} className={`card scene-card ${open === scene.id ? "scene-open" : ""}`} onClick={() => onOpen(scene.id)}>
-                    {still ? <img className="thumb" src={still} alt="" loading="lazy" /> : <div className="thumb thumb-empty">{scene.status === "in_production" ? <span className="spinner" /> : (TYPE_NAME[scene.type] ?? scene.type)}</div>}
-                    <div className="row">
-                      <span className="label">{scene.label}</span>
-                      <strong className="grow">{scene.title}</strong>
-                    </div>
-                    <p className="clamp muted">{scene.narration}</p>
-                    <div className="row">
-                      <Chip tone={status.tone}>{status.label}</Chip>
-                      <span className="muted small">{TYPE_NAME[scene.type] ?? scene.type}</span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+            {!isFolded && (
+              <div className="grid scenes">
+                {scenes.map((scene) => {
+                  const sceneStatus = SCENE_STATUS[scene.status] ?? { label: scene.status, tone: "quiet" };
+                  const still = scene.current?.stills.at(-1)?.url;
+                  return (
+                    <button key={scene.id} className={`card scene-card ${open === scene.id ? "scene-open" : ""}`} onClick={() => onOpen(scene.id)}>
+                      {still ? <img className="thumb" src={still} alt="" loading="lazy" /> : <div className="thumb thumb-empty">{scene.status === "in_production" ? <span className="spinner" /> : (TYPE_NAME[scene.type] ?? scene.type)}</div>}
+                      <div className="row">
+                        <span className="label">{scene.label}</span>
+                        <strong className="grow">{scene.title}</strong>
+                      </div>
+                      <p className="clamp muted">{scene.narration}</p>
+                      <div className="row">
+                        <Chip tone={sceneStatus.tone}>{sceneStatus.label}</Chip>
+                        <span className="muted small">{TYPE_NAME[scene.type] ?? scene.type}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </section>
         );
       })}
@@ -599,8 +733,8 @@ function VideoTab({ snap, slug, onOpenScenes }: { snap: Snapshot; slug: string; 
   const [busy, act] = useAction();
   const approved = snap.scenes.filter((s) => s.status === "approved").length;
   const built = snap.scenes.filter((s) => s.current).length;
-  const jobs = snap.jobs as { id: string; kind: string; status: string; progress: number }[];
-  const job = jobs.find((j) => j.kind === "assemble" && (j.status === "running" || j.status === "queued"));
+  const jobs = snap.jobs as { id: string; kind: string; targetId: string | null; status: string; progress: number }[];
+  const job = jobs.find((j) => j.kind === "assemble" && !j.targetId && (j.status === "running" || j.status === "queued"));
   const allApproved = snap.scenes.length > 0 && approved === snap.scenes.length;
   return (
     <>
@@ -632,7 +766,7 @@ function VideoTab({ snap, slug, onOpenScenes }: { snap: Snapshot; slug: string; 
       {snap.renders.map((r, i) => (
         <section key={r.id} className="card render">
           <div className="row">
-            <h3>{r.kind === "final" ? "Final video" : "Preview"}</h3>
+            <h3>{r.scope !== "project" ? `Preview of chapter ${snap.chapters.find((c) => c.id === r.scope)?.position ?? ""}` : r.kind === "final" ? "Final video" : "Preview"}</h3>
             <span className="muted small">
               {duration(r.durationSec)} · {r.sceneVersions.length} scenes · {ago(r.createdAt)}
             </span>

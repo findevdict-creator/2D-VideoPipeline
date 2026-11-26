@@ -52,8 +52,8 @@ export function readWav(file: string): Pcm {
   return { sampleRate, samples };
 }
 
-export function writeWav(file: string, pcm: Pcm) {
-  const data = pcm.samples.length * 2;
+function wavHeader(sampleRate: number, samples: number): Buffer {
+  const data = samples * 2;
   const header = Buffer.alloc(44);
   header.write("RIFF", 0);
   header.writeUInt32LE(36 + data, 4);
@@ -62,14 +62,20 @@ export function writeWav(file: string, pcm: Pcm) {
   header.writeUInt32LE(16, 16);
   header.writeUInt16LE(1, 20);
   header.writeUInt16LE(1, 22);
-  header.writeUInt32LE(pcm.sampleRate, 24);
-  header.writeUInt32LE(pcm.sampleRate * 2, 28);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * 2, 28);
   header.writeUInt16LE(2, 32);
   header.writeUInt16LE(16, 34);
   header.write("data", 36);
   header.writeUInt32LE(data, 40);
+  return header;
+}
+
+const bytesOf = (samples: Int16Array) => Buffer.from(samples.buffer, samples.byteOffset, samples.length * 2);
+
+export function writeWav(file: string, pcm: Pcm) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, Buffer.concat([header, Buffer.from(pcm.samples.buffer, pcm.samples.byteOffset, data)]));
+  fs.writeFileSync(file, Buffer.concat([wavHeader(pcm.sampleRate, pcm.samples.length), bytesOf(pcm.samples)]));
 }
 
 /** Change a clip's sample rate by linear interpolation. Enough for speech placed under a mix. */
@@ -91,19 +97,25 @@ export function resample(pcm: Pcm, sampleRate: number): Pcm {
  * Lay narration clips end to end on the video's frame grid. Each clip starts exactly where
  * its scene starts, so rounding each scene to whole frames never lets the voice drift.
  */
-export function layVoiceTrack(items: { file: string; startFrame: number; frames: number }[], fps: number, outFile: string): Pcm {
+export function layVoiceTrack(items: { file: string; startFrame: number; frames: number }[], fps: number, outFile: string): { sampleRate: number; samples: number } {
   const first = items[0] ? readWav(items[0].file) : { sampleRate: 24000, samples: new Int16Array(0) };
   const sampleRate = first.sampleRate;
   const at = (frame: number) => Math.round((frame / fps) * sampleRate);
-  const totalFrames = items.reduce((n, i) => Math.max(n, i.startFrame + i.frames), 0);
-  const out = new Int16Array(at(totalFrames));
-  items.forEach((item, index) => {
-    const pcm = resample(index === 0 ? first : readWav(item.file), sampleRate);
-    const start = at(item.startFrame);
-    const room = Math.min(pcm.samples.length, at(item.startFrame + item.frames) - start, out.length - start);
-    if (room > 0) out.set(pcm.samples.subarray(0, room), start);
-  });
-  const pcm = { sampleRate, samples: out };
-  writeWav(outFile, pcm);
-  return pcm;
+  const total = at(items.reduce((n, i) => Math.max(n, i.startFrame + i.frames), 0));
+  fs.mkdirSync(path.dirname(outFile), { recursive: true });
+  // Written clip by clip into a file of silence, so an hour of narration never has to fit in memory at once.
+  const out = fs.openSync(outFile, "w");
+  try {
+    fs.writeSync(out, wavHeader(sampleRate, total), 0, 44, 0);
+    fs.ftruncateSync(out, 44 + total * 2);
+    items.forEach((item, index) => {
+      const pcm = resample(index === 0 ? first : readWav(item.file), sampleRate);
+      const start = at(item.startFrame);
+      const room = Math.min(pcm.samples.length, at(item.startFrame + item.frames) - start, total - start);
+      if (room > 0) fs.writeSync(out, bytesOf(pcm.samples.subarray(0, room)), 0, room * 2, 44 + start * 2);
+    });
+  } finally {
+    fs.closeSync(out);
+  }
+  return { sampleRate, samples: total };
 }
