@@ -8,6 +8,7 @@ import { FootageScene } from "./FootageScene";
 import { HandDrawn } from "./HandDrawn";
 import { IllustrationScene } from "./IllustrationScene";
 import { Overlays } from "./Overlays";
+import { Reframed } from "./Reframed";
 
 /**
  * One studio scene as its own clip: the scene's visuals with its entrance and camera
@@ -16,6 +17,13 @@ import { Overlays } from "./Overlays";
 export const SceneClip: React.FC<{ data: VideoData; Component?: React.ComponentType }> = ({ data, Component }) => {
   const scene = data.scenes[0];
   if (!scene) return null;
+  if (data.reframe) {
+    return (
+      <VideoProvider data={data}>
+        <Reframed />
+      </VideoProvider>
+    );
+  }
   const body =
     scene.kind === "illustration" ? <IllustrationScene /> : scene.kind === "footage" ? <FootageScene /> : Component ? <Component /> : <MissingScene id={scene.id} />;
   const shell = (

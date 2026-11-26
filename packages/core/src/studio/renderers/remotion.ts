@@ -91,7 +91,22 @@ const importPath = (file: string) => JSON.stringify(file.split(path.sep).join("/
  * Bundle an entry file, reusing the last bundle in `outDir` when its key matches.
  * Bundling is the slow part of a still, so this matters when an agent asks for frames twice.
  */
-export async function bundleOnce(key: string, outDir: string, entrySource: string, sharedDir: string): Promise<string> {
+export function bundleOnce(key: string, outDir: string, entrySource: string, sharedDir: string): Promise<string> {
+  // Two renders that need the same bundle at the same moment share one build instead of writing over each other.
+  const running = bundling.get(outDir);
+  if (running && running.key === key) return running.done;
+  const done = (running ? running.done.catch(() => {}) : Promise.resolve())
+    .then(() => bundleNow(key, outDir, entrySource, sharedDir))
+    .finally(() => {
+      if (bundling.get(outDir)?.done === done) bundling.delete(outDir);
+    });
+  bundling.set(outDir, { key, done });
+  return done;
+}
+
+const bundling = new Map<string, { key: string; done: Promise<string> }>();
+
+async function bundleNow(key: string, outDir: string, entrySource: string, sharedDir: string): Promise<string> {
   const marker = path.join(outDir, "bundle.key");
   if (fs.existsSync(marker) && fs.readFileSync(marker, "utf8") === key && fs.existsSync(path.join(outDir, "index.html"))) return outDir;
   fs.rmSync(outDir, { recursive: true, force: true });

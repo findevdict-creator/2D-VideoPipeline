@@ -178,4 +178,23 @@ export interface VideoData {
   music: { src: string | null; volume: number };
   /** Studio renders: the URL that asset paths are relative to. */
   assetBase?: string;
+  /** Studio exports: a finished scene clip placed in a frame of another shape, with its captions laid out again. */
+  reframe?: ReframeData;
+}
+
+/** A rectangle in the frame, in pixels. */
+export interface Box {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface ReframeData {
+  /** The scene's clip, without captions. */
+  src: string;
+  /** Where the whole picture of the clip is drawn. It may reach past the sides of the frame, which crops it. */
+  picture: Box;
+  /** Where captions go and how large they are. Null when the video has none. */
+  captions: (Box & { fontSize: number }) | null;
 }

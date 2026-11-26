@@ -415,6 +415,7 @@ export function reviseScene(studio: Studio, sceneId: string, notes: string): Sce
 /** Make an earlier version the current one again. Its clip is still on disk, so nothing re-renders. */
 export function rollbackScene(studio: Studio, sceneId: string, version: number): Scene {
   const scene = getScene(studio, sceneId);
+  if (scene.status === "in_production") throw new Error("Claude is working on this scene right now. Wait for that run to finish, or stop it, before going back to an earlier version.");
   const target = versionByNumber(studio, sceneId, version);
   const hasClip = studio.db.get("SELECT 1 FROM clips WHERE scene_version_id = ? LIMIT 1", [target.id]);
   const wasApproved = studio.db.get("SELECT 1 FROM reviews WHERE target_kind = 'scene' AND target_id = ? AND target_version = ? AND decision = 'approve' LIMIT 1", [sceneId, version]);

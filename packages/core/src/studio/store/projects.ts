@@ -41,6 +41,7 @@ export function projectPaths(studio: Studio, project: Pick<Project, "slug">) {
     sceneDir: (sceneId: string) => at("scenes", sceneId),
     versionDir: (sceneId: string, version: number) => at("scenes", sceneId, `v${version}`),
     renders: at("renders"),
+    exports: at("exports"),
     runs: at("runs"),
     work: at(".work"),
   };
