@@ -30,6 +30,7 @@ async function request<T>(method: string, url: string, body?: unknown, headers: 
 
 export const api = {
   projects: () => request<{ workspace: string; runner: string; projects: ProjectSummary[] }>("GET", "/api/projects"),
+  recommendLength: (description: string) => request<{ seconds: number; reason: string }>("POST", "/api/recommend-length", { description }),
   createProject: (input: { description: string; title?: string; targetDurationSec: number; aspect: string }) => request<{ slug: string }>("POST", "/api/projects", input),
   project: (slug: string) => request<Snapshot>("GET", `/api/projects/${encodeURIComponent(slug)}`),
   updateSettings: (slug: string, settings: { sceneTypes?: string[]; captions?: boolean; theme?: { look?: string }; music?: Record<string, unknown>; sfx?: Record<string, unknown> }) => request("PATCH", `/api/projects/${encodeURIComponent(slug)}`, { settings }),

@@ -44,7 +44,9 @@ Shared parts come before any scene on purpose. A camera, a character or a recurr
 
 ### Long videos, chapter by chapter
 
-A video can be up to an hour long. So that you are not left waiting for all of it, stages 4 and 5 overlap:
+A video can be any length from 10 seconds to an hour. When you start one, pick a length from the list, or choose "Another length…" and type the minutes and seconds, for example 7 minutes. If you are not sure, press **Let Claude recommend a length**: Claude reads your description, fills in a length and says why in a sentence or two. It only fills the field. You can change it before you press "Start with the outline", and nothing is created until you do.
+
+So that you are not left waiting for all of a long video, stages 4 and 5 overlap:
 
 - **Scene lists are written one chapter after another**, so each chapter can read what the earlier ones already said.
 - **You approve a chapter's scene list by itself.** Its narration is recorded and its scenes are built straight away, while later chapters are still being written. You can be approving the scenes of chapter 1 while chapter 3 is still on its way. "Approve every scene list and build" does the rest in one go.
@@ -191,6 +193,8 @@ Everything the GUI does is also a command, which is useful for scripts.
 
 ```bash
 npm run studio -- new "How noise-cancelling headphones work" --minutes 3
+npm run studio -- new "How GPS finds where you are" --minutes 7 --seconds 30   # any length from 10 seconds to 60 minutes
+npm run studio -- length "How GPS finds where you are"   # ask Claude how long it should be, before you start
 npm run studio -- status <project>          # where it stands and what it waits on
 npm run studio -- approve <project>         # approve the current stage and start the next
 npm run studio -- start <project> --notes "Open with the hum on a plane"   # ask for changes to the current stage
