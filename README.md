@@ -123,6 +123,7 @@ A scene run saves its plan, writes the scene file (`scene.tsx`, or `scene.py` fo
 - **Scenes are built in parallel.** Three Claude runs and two renders at a time by default (`studio.lanes` in the settings). More is faster and uses your plan faster.
 - **Nothing is done twice.** A scene's narration is recorded again only if its text or the voice settings change. A clip is rendered again only if the scene, its timing, the theme or a shared part it imports changes.
 - **A changed shared part marks exactly the scenes that use it as out of date.** The Scenes tab says how many and why, and one button (or `npm run studio -- refresh <project>`) renders them all again with the part as it is now and puts them back up for your review. No Claude run is needed for that.
+- **Disk use stays flat as a video grows.** Each scene keeps its clip and one small bundle; the build tool's own cache, which grew by about 250 MB per scene and was never reused, is switched off.
 - **The final video renders its missing clips a few at a time** and reuses every clip that is still current, so changing three scenes of a 20-minute video renders three clips.
 
 ### When Claude's usage limit is reached

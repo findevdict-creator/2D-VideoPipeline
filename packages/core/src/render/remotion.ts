@@ -36,6 +36,8 @@ registerRoot(makeRoot(data as never, { ${sceneId}: Scene }));
     publicDir: r.publicDir,
     webpackOverride: pipelineWebpackOverride(REPO_ROOT),
     outDir: path.join(r.dir, sceneId ? `.bundle-${sceneId}` : ".bundle"),
+    // Each scene is its own entry, so webpack's disk cache is never hit and only grows.
+    enableCaching: false,
   });
 }
 

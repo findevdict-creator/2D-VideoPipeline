@@ -99,7 +99,8 @@ export async function bundleOnce(key: string, outDir: string, entrySource: strin
   fs.mkdirSync(path.join(work, "public"), { recursive: true });
   const entryPoint = path.join(work, "entry.tsx");
   fs.writeFileSync(entryPoint, entrySource);
-  await bundle({ entryPoint, outDir, publicDir: path.join(work, "public"), webpackOverride: webpackOverride(sharedDir), rootDir: REPO_ROOT });
+  // Webpack's own cache is off: every scene is its own entry, so it is never hit, and it costs a quarter of a gigabyte of disk per scene.
+  await bundle({ entryPoint, outDir, publicDir: path.join(work, "public"), webpackOverride: webpackOverride(sharedDir), rootDir: REPO_ROOT, enableCaching: false });
   fs.writeFileSync(marker, key);
   return outDir;
 }

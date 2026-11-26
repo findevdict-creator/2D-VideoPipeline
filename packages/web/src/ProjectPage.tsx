@@ -164,6 +164,9 @@ function StageBar({ snap, onChanged }: { snap: Snapshot; onChanged: () => void }
               <span className="spinner" /> Claude is working on it. You can watch under Activity.
             </p>
           )}
+          {working && stage.stage === "chapters" && snap.chapters.some((c) => c.status === "script_review") && (
+            <p>You do not have to wait for the rest: a chapter whose scene list is ready can be approved under Scenes, and its scenes are built while the others are written.</p>
+          )}
           {!working && ready && !done && <p>Ready for you. Look it over, then approve it or ask for changes.</p>}
           {stage.stage === "scenes" && !ready && <p>Open a scene to watch it, then approve it or say what should change. Each scene is rebuilt on its own.</p>}
           {!working && !ready && (
