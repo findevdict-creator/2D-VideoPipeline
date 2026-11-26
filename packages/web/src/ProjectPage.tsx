@@ -842,6 +842,151 @@ function ActivityTab({ snap }: { snap: Snapshot }) {
 
 // ---------- Video ----------
 
+const FRAMINGS = [
+  { zoom: 1, name: "The whole picture" },
+  { zoom: 1.25, name: "A little closer (crops the sides)" },
+  { zoom: 1.5, name: "Close (crops a third of the width)" },
+];
+
+/** Export the approved video in a shape, as a package: the video, subtitles, a thumbnail and a description. */
+function ExportCard({ snap, slug, ready }: { snap: Snapshot; slug: string; ready: boolean }) {
+  const [busy, act] = useAction();
+  const [format, setFormat] = useState(snap.exportFormats.find((f) => f.asBuilt)?.format ?? snap.exportFormats[0]!.format);
+  const [chapterId, setChapterId] = useState("");
+  const [zoom, setZoom] = useState(1);
+  const jobs = snap.jobs as { id: string; kind: string; status: string; progress: number }[];
+  const job = jobs.find((j) => j.kind === "export" && (j.status === "running" || j.status === "queued"));
+  const chosen = snap.exportFormats.find((f) => f.format === format)!;
+  const taller = chosen.width / chosen.height < snap.project.width / snap.project.height;
+  const chapter = snap.chapters.find((c) => c.id === chapterId);
+  const open = snap.scenes.filter((s) => (!chapter || s.chapterId === chapter.id) && s.status !== "approved").length;
+  const can = snap.scenes.length > 0 && (chapter ? open === 0 : ready);
+  return (
+    <>
+      <section className="card">
+        <h3>Export</h3>
+        <p className="muted">
+          The approved video in the shape a site wants, as a folder with the video, its subtitles, a thumbnail and a description with chapter times. Another shape is made from the same scenes: nothing is built again, and the
+          captions are laid out again to fit.
+        </p>
+        <div className="formats">
+          {snap.exportFormats.map((f) => (
+            <label key={f.format} className={`format ${f.format === format ? "chosen" : ""}`}>
+              <input type="radio" name="export-format" checked={f.format === format} onChange={() => setFormat(f.format)} />
+              <span className="grow">
+                <strong>
+                  {f.name} {f.asBuilt && <Chip>As built</Chip>}
+                </strong>
+                <span className="muted small">
+                  {f.width} by {f.height}. {f.about}
+                </span>
+              </span>
+              <span className="format-shape" style={{ width: Math.round((34 * f.width) / Math.max(f.width, f.height)), height: Math.round((34 * f.height) / Math.max(f.width, f.height)) }} />
+            </label>
+          ))}
+        </div>
+        <div className="row wrap">
+          <label>
+            What
+            <select value={chapterId} onChange={(e) => setChapterId(e.target.value)}>
+              <option value="">The whole video</option>
+              {snap.chapters.map((c) => (
+                <option key={c.id} value={c.id}>
+                  Chapter {c.position}: {c.title}
+                </option>
+              ))}
+            </select>
+          </label>
+          {taller && (
+            <label>
+              Framing
+              <select value={zoom} onChange={(e) => setZoom(Number(e.target.value))}>
+                {FRAMINGS.map((f) => (
+                  <option key={f.zoom} value={f.zoom}>
+                    {f.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <button
+            className="btn btn-primary"
+            disabled={busy || Boolean(job) || !can}
+            title={can ? "" : "Every scene in it must be approved first"}
+            onClick={() => act(() => api.exportVideo(slug, { format, zoom: taller ? zoom : 1, chapterId: chapterId || undefined }), "Exporting")}
+          >
+            Export
+          </button>
+          {!can && snap.scenes.length > 0 && <span className="muted small">{open || snap.scenes.filter((s) => s.status !== "approved").length} scenes are not approved yet.</span>}
+        </div>
+        {job && (
+          <div className="job">
+            <span className="spinner" /> <span>Exporting</span>
+            <progress value={job.progress} max={1} />
+          </div>
+        )}
+      </section>
+      {snap.exports.map((e) => {
+        const f = snap.exportFormats.find((x) => x.format === e.format);
+        const part = e.scope !== "project" ? `chapter ${snap.chapters.find((c) => c.id === e.scope)?.position ?? ""}` : "the whole video";
+        return (
+          <section key={e.id} className="card">
+            <div className="row">
+              <h3>Export: {f?.name ?? e.format}</h3>
+              <span className="muted small">
+                {part} · {e.width} by {e.height} · {duration(e.durationSec)} · {ago(e.createdAt)}
+              </span>
+            </div>
+            <div className="export">
+              {e.url ? <video src={e.url} controls poster={e.thumbnailUrl ?? undefined} preload="none" /> : <span className="muted">The files were moved or deleted.</span>}
+              <div>
+                {e.notes.map((note, n) => (
+                  <p key={n} className="notice">
+                    {note}
+                  </p>
+                ))}
+                <ul className="files">
+                  {e.url && (
+                    <li>
+                      <a className="btn" href={e.url} download>
+                        Download the video
+                      </a>
+                    </li>
+                  )}
+                  {e.subtitlesUrl && (
+                    <li>
+                      <a className="btn btn-quiet" href={e.subtitlesUrl} download>
+                        Subtitles
+                      </a>
+                    </li>
+                  )}
+                  {e.thumbnailUrl && (
+                    <li>
+                      <a className="btn btn-quiet" href={e.thumbnailUrl} download>
+                        Thumbnail
+                      </a>
+                    </li>
+                  )}
+                  {e.descriptionUrl && (
+                    <li>
+                      <a className="btn btn-quiet" href={e.descriptionUrl} target="_blank" rel="noreferrer">
+                        Description
+                      </a>
+                    </li>
+                  )}
+                </ul>
+                <div className="muted small">
+                  All of it is in this folder: <code>{e.folderPath}</code>
+                </div>
+              </div>
+            </div>
+          </section>
+        );
+      })}
+    </>
+  );
+}
+
 function VideoTab({ snap, slug, onOpenScenes }: { snap: Snapshot; slug: string; onOpenScenes: () => void }) {
   const [busy, act] = useAction();
   const approved = snap.scenes.filter((s) => s.status === "approved").length;
@@ -876,6 +1021,7 @@ function VideoTab({ snap, slug, onOpenScenes }: { snap: Snapshot; slug: string; 
           </div>
         )}
       </section>
+      <ExportCard snap={snap} slug={slug} ready={allApproved} />
       {snap.renders.map((r, i) => (
         <section key={r.id} className="card render">
           <div className="row">

@@ -28,6 +28,7 @@ import { REPO, SAMPLE_SPEC, tempStudio } from "./helpers/studio.js";
 const TABLES = [
   "projects", "documents", "chapters", "scenes", "scene_versions", "voice_tracks", "clips", "assets", "project_references",
   "shared_assets", "shared_asset_versions", "scene_dependencies", "shared_asset_requests", "reviews", "agent_runs", "jobs", "renders", "events",
+  "scene_references", "exports",
 ];
 
 test("a fresh workspace gets a database with every table", async () => {
