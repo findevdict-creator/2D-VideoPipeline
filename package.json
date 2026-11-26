@@ -1,10 +1,10 @@
 {
   "name": "2d-video-pipeline",
   "version": "1.0.0",
-  "description": "Automated 2D explainer video pipeline with AI agents and human approval at each stage",
+  "description": "A scene-based explainer video studio: Claude plans and builds each scene, you review each one",
   "scripts": {
     "pipeline": "tsx packages/cli/src/cli.ts",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p packages/lib",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p packages/lib && tsc --noEmit -p packages/web",
     "test": "tsx --test tests/*.test.ts",
     "setup:voice": "node scripts/setup-voice.mjs",
     "studio": "tsx packages/cli/src/studio.ts"

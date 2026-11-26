@@ -162,16 +162,19 @@ export function deleteScene(studio: Studio, sceneId: string) {
   studio.emit("scene.changed", { projectId: scene.projectId, targetId: sceneId });
 }
 
+/** Set a scene's status. For "stale" and "failed", `staleReason` says why the scene needs attention. */
 export function setSceneStatus(studio: Studio, sceneId: string, status: SceneStatus, staleReason: string | null = null) {
   const scene = getScene(studio, sceneId);
-  studio.db.run("UPDATE scenes SET status = ?, stale_reason = ?, updated_at = ? WHERE id = ?", [status, status === "stale" ? staleReason : null, nowIso(), sceneId]);
+  studio.db.run("UPDATE scenes SET status = ?, stale_reason = ?, updated_at = ? WHERE id = ?", [status, status === "stale" || status === "failed" ? staleReason : null, nowIso(), sceneId]);
   studio.emit("scene.changed", { projectId: scene.projectId, targetId: sceneId, data: { status } });
 }
 
 /** Change a planned scene's idea, narration or type before any work has gone into it. */
 export function updatePlan(studio: Studio, sceneId: string, patch: Partial<ScenePlanInput>): Scene {
   const scene = getScene(studio, sceneId);
-  const plan = ScenePlanSchema.parse({ ...scene.plan, ...patch });
+  // A field left out of the patch keeps its value.
+  const given = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
+  const plan = ScenePlanSchema.parse({ ...scene.plan, title: scene.title, type: scene.type, ...given });
   studio.db.run("UPDATE scenes SET title = ?, type = ?, plan_json = ?, updated_at = ? WHERE id = ?", [plan.title, plan.type, JSON.stringify(plan), nowIso(), sceneId]);
   studio.emit("scene.changed", { projectId: scene.projectId, targetId: sceneId });
   return getScene(studio, sceneId);
@@ -214,6 +217,8 @@ export function versionPaths(studio: Studio, project: Project, v: Pick<SceneVers
     source: v.sourcePath ? p.abs(v.sourcePath) : null,
     stills: path.join(dir, "stills"),
     clip: (quality: string) => path.join(dir, `clip-${quality}.mp4`),
+    /** The clip with its narration, for watching. */
+    review: (quality: string) => path.join(dir, `review-${quality}.mp4`),
     log: path.join(dir, "render.log"),
   };
 }
@@ -240,6 +245,7 @@ export function beginVersion(studio: Studio, sceneId: string, createdBy: string,
   // Code is carried forward only while the scene keeps its type.
   if (sourcePath && previous?.sourcePath && previous.spec.type === nextSpec.type && fs.existsSync(p.abs(previous.sourcePath))) {
     fs.copyFileSync(p.abs(previous.sourcePath), p.abs(sourcePath));
+    fs.chmodSync(p.abs(sourcePath), 0o644);
     sourceHash = previous.sourceHash;
   }
   fs.writeFileSync(path.join(dir, "spec.json"), JSON.stringify(nextSpec, null, 2) + "\n");
@@ -365,6 +371,9 @@ export function approveScene(studio: Studio, sceneId: string, notes = ""): Scene
     addReview(studio, { projectId: scene.projectId, targetKind: "scene", targetId: sceneId, targetVersion: version.version, decision: "approve", notes });
     studio.db.run("UPDATE scenes SET approved_version_id = ?, status = 'approved', stale_reason = NULL, updated_at = ? WHERE id = ?", [version.id, nowIso(), sceneId]);
   });
+  // An approved version is frozen: later runs work on a new version and cannot edit this one's code.
+  const source = versionPaths(studio, getProject(studio, scene.projectId), version).source;
+  if (source && fs.existsSync(source)) fs.chmodSync(source, 0o444);
   studio.emit("scene.changed", { projectId: scene.projectId, targetId: sceneId, data: { status: "approved" } });
   return getScene(studio, sceneId);
 }

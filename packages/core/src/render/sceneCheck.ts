@@ -4,11 +4,11 @@
  */
 const ALLOWED_IMPORTS = new Set(["@pipeline/lib", "remotion", "react"]);
 
-export function checkSceneSource(code: string, opts: { allowed?: string[]; allowedPrefixes?: string[] } = {}): string[] {
+export function checkSceneSource(code: string, opts: { allowed?: string[]; allowedPrefixes?: string[]; defaultExport?: boolean } = {}): string[] {
   const allowed = opts.allowed ? new Set(opts.allowed) : ALLOWED_IMPORTS;
   const prefixes = opts.allowedPrefixes ?? [];
   const problems: string[] = [];
-  if (!/export\s+default\b/.test(code)) {
+  if (opts.defaultExport !== false && !/export\s+default\b/.test(code)) {
     problems.push("The file must default-export the scene component (export default function Scene() {...}).");
   }
   const imports = [

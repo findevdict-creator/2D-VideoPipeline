@@ -1,0 +1,13 @@
+{
+  "name": "@studio/mcp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The studio's MCP server: the tools a Claude run uses to read and change one project",
+  "main": "./src/server.ts",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@studio/core": "*",
+    "zod": "^4.6.7"
+  }
+}

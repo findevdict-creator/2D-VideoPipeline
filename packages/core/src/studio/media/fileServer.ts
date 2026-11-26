@@ -33,12 +33,18 @@ export class FileServer {
   }
 }
 
-export function serve(root: string, req: http.IncomingMessage, res: http.ServerResponse, urlPath = req.url ?? "/") {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Headers", "Range");
-  res.setHeader("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges");
+/**
+ * Answer one request for a file under `root`. `cors` lets pages from other origins read
+ * the files, which renders need and the GUI must not allow.
+ */
+export function serve(root: string, req: http.IncomingMessage, res: http.ServerResponse, urlPath = req.url ?? "/", cors = true) {
+  if (cors) {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Headers", "Range");
+    res.setHeader("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges");
+  }
   if (req.method === "OPTIONS") {
-    res.writeHead(204).end();
+    res.writeHead(cors ? 204 : 405).end();
     return;
   }
   let relative: string;
@@ -89,6 +95,9 @@ export function serve(root: string, req: http.IncomingMessage, res: http.ServerR
 function contentType(file: string): string {
   const ext = path.extname(file).toLowerCase();
   if (ext === ".json") return "application/json";
+  if (ext === ".html") return "text/html; charset=utf-8";
+  if (ext === ".css") return "text/css; charset=utf-8";
+  if (ext === ".js" || ext === ".mjs") return "text/javascript; charset=utf-8";
   if (ext === ".md" || ext === ".txt" || ext === ".log" || ext === ".srt") return "text/plain; charset=utf-8";
   if (ext === ".tsx" || ext === ".ts" || ext === ".py") return "text/plain; charset=utf-8";
   return guessAsset(file).mime;

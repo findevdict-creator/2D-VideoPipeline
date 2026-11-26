@@ -10,6 +10,8 @@ export const REPO = path.resolve(import.meta.dirname, "..", "..");
 export async function tempStudio(overrides: ConfigOverrides = {}): Promise<Studio> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "studio-test-"));
   const config = loadConfig({ rootDir: REPO, runner: "mock", ...overrides });
+  // Only a test that asks for a browser renders with one, so the rest stay fast when REMOTION_BROWSER_EXECUTABLE is set.
+  if (!overrides.render?.browserExecutable) config.render.browserExecutable = "";
   return new Studio(config, dir);
 }
 
