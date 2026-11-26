@@ -9,6 +9,7 @@ import { MockStudioRunner } from "./runs/mock.js";
 import { agentFor, systemPrompt, taskPrompt } from "./runs/prompts.js";
 import { ClaudeCliStudioRunner, type StudioRunner } from "./runs/runner.js";
 import { renderSceneClip } from "./scenes/render.js";
+import { buildSoundtrack, mixArgs } from "./sound/mix.js";
 import type { Studio } from "./studio.js";
 import { getChapter, listChapters, syncChapterStatus, updateChapter, type Chapter, type ChapterStatus } from "./store/chapters.js";
 import type { Clip, ClipQuality } from "./store/clips.js";
@@ -618,17 +619,28 @@ export class Orchestrator {
     return stale.map((s) => s.id);
   }
 
-  /** The clip with its narration, for watching in the GUI. Clips themselves stay silent so they can be joined. */
+  /** The clip with its narration and its sound effects, for watching in the GUI. Clips themselves stay silent so they can be joined. */
   private async reviewCopy(sceneId: string, clip: Clip) {
     const { studio } = this;
     const version = getVersion(studio, clip.sceneVersionId);
     const project = getProject(studio, getScene(studio, sceneId).projectId);
     const p = projectPaths(studio, project);
-    const track = version.voiceTrackId ? getVoiceTrack(studio, version.voiceTrackId) : undefined;
     const out = versionPaths(studio, project, version).review(clip.quality);
     const args = ["-y", "-i", p.abs(clip.path)];
-    if (track) args.push("-i", p.abs(track.audioPath), "-map", "0:v", "-map", "1:a", "-c:a", "aac", "-b:a", "128k", "-ar", "48000");
-    await ffmpeg([...args, "-c:v", "copy", "-movflags", "+faststart", out]);
+    const work = path.join(p.work, sceneId, `review-sound-${clip.quality}`);
+    try {
+      if (version.voiceTrackId && getVoiceTrack(studio, version.voiceTrackId)) {
+        // The scene by itself, without the video's music: what is reviewed here is the scene.
+        const quiet = { ...project, settings: { ...project.settings, music: { ...project.settings.music, assetId: null } } };
+        const mix = mixArgs(await buildSoundtrack(studio, quiet, [{ versionId: version.id, startFrame: 0, frames: clip.durationFrames }], work), 1);
+        args.push(...mix.inputs);
+        if (mix.filter) args.push("-filter_complex", mix.filter);
+        args.push("-map", "0:v", "-map", mix.map, "-c:a", "aac", "-b:a", "128k", "-ar", "48000");
+      }
+      await ffmpeg([...args, "-c:v", "copy", "-movflags", "+faststart", out]);
+    } finally {
+      fs.rmSync(work, { recursive: true, force: true });
+    }
   }
 
   /** Join the scenes into the video. Scenes whose clips are missing are rendered first. */

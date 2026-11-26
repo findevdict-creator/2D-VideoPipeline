@@ -49,7 +49,19 @@ export const ProjectSettingsSchema = z.object({
   tone: z.string().default("Friendly, curious and clear"),
   audience: z.string().default("Curious general viewers"),
   captions: z.boolean().default(true),
-  music: z.object({ assetId: z.string().nullable().default(null), volume: z.number().min(0).max(1).default(0.12) }).prefault({}),
+  music: z
+    .object({
+      assetId: z.string().nullable().default(null),
+      /** How loud the music is while the narrator speaks. */
+      volume: z.number().min(0).max(1).default(0.12),
+      /** Lower the music under the voice and bring it back up in pauses. Off: it stays at `volume` throughout. */
+      duck: z.boolean().default(true),
+      /** How loud the music is where nobody speaks, when `duck` is on. */
+      gapVolume: z.number().min(0).max(1).default(0.4),
+    })
+    .prefault({}),
+  /** Sound effects: the ones scenes name in their specs. Switching them off keeps them in the specs and leaves them out of the sound. */
+  sfx: z.object({ enabled: z.boolean().default(true), volume: z.number().min(0).max(2).default(1) }).prefault({}),
   /** Which scene types the planner may choose from. Types this machine cannot build are left out when it asks. */
   sceneTypes: z.array(z.string()).default(["remotion-2d", "r3f", "manim", "illustration", "footage"]),
 });

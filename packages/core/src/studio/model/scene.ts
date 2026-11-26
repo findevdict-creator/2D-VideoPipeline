@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SOUNDS } from "../sound/builtin.js";
 
 export const SCENE_TYPES = ["remotion-2d", "r3f", "manim", "illustration", "footage"] as const;
 export type SceneType = (typeof SCENE_TYPES)[number];
@@ -74,8 +75,19 @@ const base = {
   visual: VisualSchema,
   cues: z.array(CueSchema).default([]),
   sfx: z
-    .array(z.object({ assetId: z.string(), at: When, volume: z.number().min(0).max(1).default(0.6) }))
-    .default([]),
+    .array(
+      z
+        .object({
+          sound: z.enum(SOUNDS).optional().describe("One of the studio's own sounds"),
+          assetId: z.string().optional().describe("Or a sound file of the project, by its asset id"),
+          at: When.describe("When it is heard: on a cue, so it lands with the picture, or at a time in seconds"),
+          volume: z.number().min(0).max(1).default(0.6),
+        })
+        .refine((s) => (s.sound === undefined) !== (s.assetId === undefined), "give exactly one of sound or assetId"),
+    )
+    .max(12)
+    .default([])
+    .describe("Sound effects. Few, and each tied to something that happens on screen"),
   references: z
     .array(z.object({ assetId: z.string(), role: z.enum(["style", "layout", "motion"]), note: z.string().default("") }))
     .default([]),

@@ -2,6 +2,9 @@ import type { SceneSpec } from "../model/scene.js";
 import type { Studio } from "../studio.js";
 import { findAsset } from "../store/assets.js";
 
+/** The longest file that may be used as a sound effect. */
+export const MAX_SFX_SEC = 15;
+
 /**
  * Checks that need the database: every asset a spec names must exist in the project
  * and be the right kind of file. Returned as plain sentences an agent can act on.
@@ -16,7 +19,10 @@ export function checkSpecAssets(studio: Studio, projectId: string, spec: SceneSp
   };
 
   spec.references.forEach((r, i) => need(r.assetId, ["image", "video"], `references.${i}`));
-  spec.sfx.forEach((s, i) => need(s.assetId, ["audio_sfx", "audio_music"], `sfx.${i}`));
+  spec.sfx.forEach((s, i) => {
+    const asset = s.assetId ? need(s.assetId, ["audio_sfx", "audio_music"], `sfx.${i}`) : undefined;
+    if (asset && (asset.durationSec ?? 0) > MAX_SFX_SEC) problems.push(`sfx.${i}: "${asset.label}" is ${Math.round(asset.durationSec!)}s long. A sound effect is at most ${MAX_SFX_SEC}s; a longer file is music`);
+  });
   spec.assets.forEach((assetId, i) => {
     const asset = need(assetId, ["model", "image"], `assets.${i}`);
     if (asset?.kind === "model" && spec.type !== "r3f") problems.push(`assets.${i}: "${asset.label}" is a 3D model, which only a scene of type r3f can show`);

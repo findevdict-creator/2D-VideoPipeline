@@ -172,6 +172,27 @@ export function SceneDrawer({ sceneId, snapshot, refreshKey, onClose }: { sceneI
           </>
         )}
 
+        {scene.spec && scene.spec.sfx.length > 0 && (
+          <>
+            <h4>
+              Sound effects {!snapshot.project.settings.sfx.enabled && <span className="muted small">· switched off for this video on the Plan tab</span>}
+            </h4>
+            <table className="table">
+              <tbody>
+                {scene.spec.sfx.map((s, i) => {
+                  const cue = scene.spec!.cues.find((c) => c.id === s.at.cue);
+                  return (
+                    <tr key={i}>
+                      <td className="nowrap">{s.sound ?? snapshot.assets.find((a) => a.id === s.assetId)?.label ?? "a sound file"}</td>
+                      <td>{cue ? `as the narrator says “${cue.phrase}”` : `${s.at.sec ?? 0} s into the scene`}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </>
+        )}
+
         {scene.reviews.length > 0 && (
           <>
             <h4>Your reviews</h4>

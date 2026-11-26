@@ -4,14 +4,16 @@ import { loadConfig, type RunnerKind } from "@studio/core/config";
 import { importProduction } from "@studio/core/studio/importProduction";
 import { Studio } from "@studio/core/studio/studio";
 import { listChapters } from "@studio/core/studio/store/chapters";
-import { createProject, getProject, listProjects } from "@studio/core/studio/store/projects";
+import { createProject, getProject, listProjects, updateProject } from "@studio/core/studio/store/projects";
 import { listRuns, readRunLog } from "@studio/core/studio/store/runs";
 import { Orchestrator } from "@studio/core/studio/workflow";
-import { findScene, getScene, listScenes, sceneLabel } from "@studio/core/studio/store/scenes";
+import { findScene, getScene, listScenes, sceneLabel, setTheme } from "@studio/core/studio/store/scenes";
 import { ensureVoice } from "@studio/core/studio/voice";
 import { REFERENCE_ROLES } from "@studio/core/studio/model/asset";
 import type { ModelInfo } from "@studio/core/studio/assets/gltf";
-import { importAsset, listAssets, listProjectReferences, setProjectReference } from "@studio/core/studio/store/assets";
+import { importAsset, listAssets, listProjectReferences, setProjectReference, setSceneReference } from "@studio/core/studio/store/assets";
+import { clock, referenceKeyframes } from "@studio/core/studio/assets/keyframes";
+import { LOOKS } from "@studio/core/studio/model/project";
 import { assemble } from "@studio/core/studio/assemble";
 import { checkScene, renderSceneClip, renderSceneStills } from "@studio/core/studio/scenes/render";
 
@@ -32,6 +34,11 @@ Usage:
   npm run studio -- scenes <project>                 list a project's scenes and their status
   npm run studio -- assets <project>                 list a project's images, clips, sounds and models
   npm run studio -- asset add <project> <file...>    add files to a project (--label, --reference style|layout|motion)
+  npm run studio -- keyframes <project> <asset>      one frame of each shot of a reference video, and a contact sheet
+  npm run studio -- reference <project> <scene> <asset>   attach a reference to one scene (--reference <role>, --at <seconds>, --note; "none" as the role removes it)
+  npm run studio -- look <project> <clean|hand-drawn>     change the look; scenes already drawn are marked out of date
+  npm run studio -- music <project> <asset|file|off>      choose the music (--volume under the voice, --pause-volume in pauses, --steady for no dipping)
+  npm run studio -- sfx <project> <on|off>           play or leave out the sound effects scenes ask for
   npm run studio -- check <project> <scene>          report what would stop a scene from rendering
   npm run studio -- stills <project> <scene>         render still frames of a scene for a quick look
   npm run studio -- render <project> [scene...]      render scene clips (all scenes when none is named)
@@ -48,6 +55,10 @@ Options:
   --label <text>                         name for an added asset
   --reference <style|layout|motion>      also mark an added asset as a reference for the whole video
   --note <text>                          what to take from the reference
+  --at <seconds>                         for a video attached to a scene: the moment to follow
+  --volume <0 to 1>                      how loud the music is under the voice (default 0.12)
+  --pause-volume <0 to 1>                how loud the music is where nobody speaks (default 0.4)
+  --steady                               keep the music at one level instead of dipping it under the voice
   --notes <text>                         what should change, for start and revise
   -h, --help
 `;
@@ -70,6 +81,10 @@ async function main() {
       "no-open": { type: "boolean", default: false },
       reference: { type: "string" },
       note: { type: "string" },
+      at: { type: "string" },
+      volume: { type: "string" },
+      "pause-volume": { type: "string" },
+      steady: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -88,7 +103,12 @@ async function main() {
   }
 }
 
-async function run(studio: Studio, command: string, rest: string[], flags: { final: boolean; chapter?: string; label?: string; reference?: string; note?: string; minutes?: string; seconds?: string; title?: string; notes?: string }) {
+async function run(
+  studio: Studio,
+  command: string,
+  rest: string[],
+  flags: { final: boolean; chapter?: string; label?: string; reference?: string; note?: string; minutes?: string; seconds?: string; title?: string; notes?: string; at?: string; volume?: string; "pause-volume"?: string; steady?: boolean },
+) {
   const log = (message: string) => console.log(message);
   const quality = flags.final ? "final" : "preview";
   if (command === "new") {
@@ -182,6 +202,67 @@ async function run(studio: Studio, command: string, rest: string[], flags: { fin
         for (const warning of model.warnings) console.log(`  Warning: ${warning}`);
       }
     }
+    return;
+  }
+  if (command === "keyframes") {
+    const project = getProject(studio, required(rest[0], "project"));
+    const asset = assetNamed(studio, project.id, required(rest[1], "asset"));
+    const found = await referenceKeyframes(studio, asset.id);
+    for (const k of found.keyframes) console.log(`#${k.index}  ${clock(k.atSec)}  (shot ${clock(k.shotStartSec)} to ${clock(k.shotEndSec)})  ${k.file}`);
+    if (found.sheet) console.log(`Contact sheet: ${found.sheet}`);
+    return;
+  }
+  if (command === "reference") {
+    const project = getProject(studio, required(rest[0], "project"));
+    const scene = findScene(studio, project.id, required(rest[1], "scene"));
+    const asset = assetNamed(studio, project.id, required(rest[2], "asset"));
+    const role = flags.reference ?? "layout";
+    if (role === "none") {
+      setSceneReference(studio, scene.id, { assetId: asset.id, role: null });
+      console.log(`"${asset.label}" is no longer a reference for scene ${sceneLabel(studio, scene)}.`);
+      return;
+    }
+    if (!(REFERENCE_ROLES as readonly string[]).includes(role)) throw new Error(`--reference must be one of: ${REFERENCE_ROLES.join(", ")}, or none`);
+    const atSec = flags.at !== undefined ? Number(flags.at) : null;
+    if (atSec !== null && !(atSec >= 0)) throw new Error("--at is a time in seconds, such as 12.5");
+    setSceneReference(studio, scene.id, { assetId: asset.id, role: role as (typeof REFERENCE_ROLES)[number], note: flags.note ?? "", atSec });
+    console.log(`Scene ${sceneLabel(studio, scene)} now follows "${asset.label}" for its ${role}${atSec !== null ? `, at ${clock(atSec)}` : ""}.${scene.currentVersionId ? " It is already built: ask for changes to have it rebuilt." : ""}`);
+    return;
+  }
+  if (command === "look") {
+    const project = getProject(studio, required(rest[0], "project"));
+    const look = required(rest[1], "look");
+    if (!(LOOKS as readonly string[]).includes(look)) throw new Error(`The look is one of: ${LOOKS.join(", ")}`);
+    const stale = setTheme(studio, project.id, { ...project.settings.theme, look: look as (typeof LOOKS)[number] });
+    console.log(`The look is now ${look}.${stale.length ? ` ${stale.length} scene(s) were drawn in the old one: npm run studio -- refresh ${project.slug}` : ""}`);
+    return;
+  }
+  if (command === "music") {
+    const project = getProject(studio, required(rest[0], "project"));
+    const what = required(rest[1], "music file, asset id, or off");
+    const level = (value: string | undefined, name: string) => {
+      if (value === undefined) return undefined;
+      const n = Number(value);
+      if (!(n >= 0 && n <= 1)) throw new Error(`${name} is a number from 0 to 1`);
+      return n;
+    };
+    const music = { ...project.settings.music, ...(flags.steady ? { duck: false } : {}) };
+    const volume = level(flags.volume, "--volume");
+    const gapVolume = level(flags["pause-volume"], "--pause-volume");
+    if (volume !== undefined) music.volume = volume;
+    if (gapVolume !== undefined) music.gapVolume = gapVolume;
+    if (what === "off") music.assetId = null;
+    else music.assetId = (listAssets(studio, project.id).find((a) => a.id === what) ?? (await importAsset(studio, project.id, what, { kind: "audio_music" }))).id;
+    updateProject(studio, project.id, { settings: { music } });
+    console.log(music.assetId ? `Music set. It plays at ${music.volume} under the voice${music.duck ? ` and ${music.gapVolume} in pauses` : ""}, from the next preview on.` : "The video has no music now.");
+    return;
+  }
+  if (command === "sfx") {
+    const project = getProject(studio, required(rest[0], "project"));
+    const on = required(rest[1], "on or off");
+    if (on !== "on" && on !== "off") throw new Error("Say on or off.");
+    updateProject(studio, project.id, { settings: { sfx: { ...project.settings.sfx, enabled: on === "on" } } });
+    console.log(`Sound effects are ${on}.`);
     return;
   }
   if (command === "check") {
@@ -312,6 +393,14 @@ function printStatus(studio: Studio, o: Orchestrator, projectId: string) {
   }
   if (status.waitingOn.length) console.log(`Waiting on:\n  - ${status.waitingOn.join("\n  - ")}`);
   else if (status.stage !== "done") console.log("Ready for you to approve.");
+}
+
+/** An asset by its id, or by its label when exactly one has it. */
+function assetNamed(studio: Studio, projectId: string, name: string) {
+  const all = listAssets(studio, projectId);
+  const found = all.find((a) => a.id === name) ?? (all.filter((a) => a.label === name).length === 1 ? all.find((a) => a.label === name) : undefined);
+  if (!found) throw new Error(`There is no asset "${name}" in this project. List them with: npm run studio -- assets <project>`);
+  return found;
 }
 
 function required(value: string | undefined, what: string): string {

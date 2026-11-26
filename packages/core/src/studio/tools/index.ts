@@ -13,6 +13,7 @@ import { availableSceneTypes } from "../renderers/registry.js";
 import { renderSharedPreview, typecheckScene } from "../renderers/remotion.js";
 import { checkScene, renderSceneStills } from "../scenes/render.js";
 import { checkSpecAssets } from "../scenes/validate.js";
+import { SOUND_GUIDE } from "../sound/builtin.js";
 import type { ModelInfo } from "../assets/gltf.js";
 import { listAssets, listProjectReferences, listSceneReferences, type Asset } from "../store/assets.js";
 import { getChapter, listChapters, proposeChapters } from "../store/chapters.js";
@@ -219,6 +220,13 @@ const tools: ToolDef<any>[] = [
           const asset = listAssets(studio, project.id).find((a) => a.id === r.assetId);
           return { assetId: r.assetId, label: asset?.label, kind: asset?.kind, role: r.role, note: r.note, ...(r.atSec != null ? { atSec: r.atSec } : {}), howToUse: referenceGuide(asset, r.role, r.atSec, true) };
         }),
+        sounds: {
+          howToUse: project.settings.sfx.enabled
+            ? 'Sound effects go in the spec under "sfx", each on a cue: { "sound": "pop", "at": { "cue": "pin" } }, or { "assetId": "<id>", ... } for one of the project\'s own. Use a few, where something on screen lands, appears or changes. A calm scene needs none.'
+            : "Sound effects are switched off for this video. Leave \"sfx\" empty.",
+          builtIn: SOUND_GUIDE,
+          ofTheProject: listAssets(studio, project.id, "audio_sfx").map((a) => ({ assetId: a.id, label: a.label, durationSec: a.durationSec })),
+        },
         previous: neighbour(all[at - 1]),
         next: neighbour(all[at + 1]),
         sharedAssets: listShared(studio, project.id)

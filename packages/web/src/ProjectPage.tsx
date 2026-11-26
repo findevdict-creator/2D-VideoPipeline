@@ -269,9 +269,76 @@ function PlanTab({ snap }: { snap: Snapshot }) {
           </p>
           <LookSwitch snap={snap} />
         </section>
+        <Sound snap={snap} />
         <SceneTypes snap={snap} />
       </div>
     </div>
+  );
+}
+
+/** Music under the narration, and the sound effects scenes ask for. Mixed when the video is put together, so nothing has to be rendered again. */
+function Sound({ snap }: { snap: Snapshot }) {
+  const [busy, act] = useAction();
+  const { music, sfx } = snap.project.settings;
+  const files = snap.assets.filter((a) => a.kind === "audio_music" || a.kind === "audio_sfx");
+  const set = (settings: { music?: Record<string, unknown>; sfx?: Record<string, unknown> }) => void act(() => api.updateSettings(snap.project.slug, settings));
+  const percent = (v: number) => `${Math.round(v * 100)}%`;
+  return (
+    <section className="card">
+      <h3>Sound</h3>
+      <div className="form">
+        <label>
+          Music
+          <select value={music.assetId ?? ""} disabled={busy} onChange={(e) => set({ music: { assetId: e.target.value || null } })}>
+            <option value="">No music</option>
+            {files.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.label}
+                {a.durationSec ? ` (${duration(a.durationSec)})` : ""}
+              </option>
+            ))}
+          </select>
+          {!files.length && <span className="muted small">Add a music file on the Assets tab to choose it here. A file shorter than the video is repeated.</span>}
+        </label>
+        {music.assetId && (
+          <>
+            <label>
+              <span>
+                How loud under the voice <span className="muted small">· {percent(music.volume)}</span>
+              </span>
+              <input type="range" min={0} max={0.5} step={0.01} defaultValue={music.volume} disabled={busy} onPointerUp={(e) => set({ music: { volume: Number(e.currentTarget.value) } })} onKeyUp={(e) => set({ music: { volume: Number(e.currentTarget.value) } })} />
+            </label>
+            <label className="check">
+              <input type="checkbox" checked={music.duck} disabled={busy} onChange={(e) => set({ music: { duck: e.target.checked } })} />
+              <span>Bring the music up in the pauses, and back down before the next words</span>
+            </label>
+            {music.duck && (
+              <label>
+                <span>
+                  How loud in the pauses <span className="muted small">· {percent(music.gapVolume)}</span>
+                </span>
+                <input type="range" min={0} max={1} step={0.01} defaultValue={music.gapVolume} disabled={busy} onPointerUp={(e) => set({ music: { gapVolume: Number(e.currentTarget.value) } })} onKeyUp={(e) => set({ music: { gapVolume: Number(e.currentTarget.value) } })} />
+              </label>
+            )}
+          </>
+        )}
+        <label className="check">
+          <input type="checkbox" checked={sfx.enabled} disabled={busy} onChange={(e) => set({ sfx: { enabled: e.target.checked } })} />
+          <span>
+            Sound effects <span className="muted small">· the pops, clicks and whooshes scenes put on their cues</span>
+          </span>
+        </label>
+        {sfx.enabled && (
+          <label>
+            <span>
+              How loud the effects are <span className="muted small">· {percent(sfx.volume)}</span>
+            </span>
+            <input type="range" min={0} max={2} step={0.05} defaultValue={sfx.volume} disabled={busy} onPointerUp={(e) => set({ sfx: { volume: Number(e.currentTarget.value) } })} onKeyUp={(e) => set({ sfx: { volume: Number(e.currentTarget.value) } })} />
+          </label>
+        )}
+      </div>
+      <p className="muted small">Music is added when a preview or the final video is put together. Effects are also in each scene's own clip the next time it is rendered. No scene has to be built again.</p>
+    </section>
   );
 }
 

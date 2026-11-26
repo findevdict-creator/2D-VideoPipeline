@@ -18,6 +18,8 @@ export class MockStudioRunner implements StudioRunner {
   delayMs = 0;
   /** Scenes written for each chapter. Raise it to try a long video. */
   scenesPerChapter = 2;
+  /** Put sound effects on the cues of every scene. */
+  sfx = true;
   /** Give the video a recurring character. Left unset, it follows whether the description asks for one. */
   character?: boolean;
   /** Called before every tool call. Throw a UsageLimitError from it to stand in for Claude's usage limit. */
@@ -145,6 +147,8 @@ export class MockStudioRunner implements StudioRunner {
           visual: { description: scene.plan.visualIdea || "A badge and a growing line", elements: cues.map((c) => ({ id: c.id, kind: "shape", description: c.action })) },
           cues,
           references,
+          // A pop as the first thing appears, and a small bell on the second.
+          sfx: this.sfx ? [{ sound: "pop", at: { cue: "first" } }, ...(cues.length > 1 ? [{ sound: "ding", at: { cue: "second" }, volume: 0.4 }] : [])] : [],
         };
         if (scene.type === "illustration") {
           const image = (await call("asset_list", { kind: "image" })).assets[0] as { id: string };

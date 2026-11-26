@@ -52,8 +52,44 @@ export function readWav(file: string): Pcm {
   return { sampleRate, samples };
 }
 
-function wavHeader(sampleRate: number, samples: number): Buffer {
-  const data = samples * 2;
+/** Where the samples of a 16-bit WAV file are, without reading them: for files worked through a piece at a time. */
+export function wavLayout(file: string): { sampleRate: number; channels: number; dataOffset: number; frames: number } {
+  const fd = fs.openSync(file, "r");
+  try {
+    const size = fs.fstatSync(fd).size;
+    const head = Buffer.alloc(12);
+    fs.readSync(fd, head, 0, 12, 0);
+    if (head.toString("ascii", 0, 4) !== "RIFF" || head.toString("ascii", 8, 12) !== "WAVE") throw new Error(`${file} is not a WAV file`);
+    let channels = 1;
+    let sampleRate = 48000;
+    let bits = 16;
+    const chunk = Buffer.alloc(8);
+    for (let at = 12; at + 8 <= size; ) {
+      fs.readSync(fd, chunk, 0, 8, at);
+      const id = chunk.toString("ascii", 0, 4);
+      const length = chunk.readUInt32LE(4);
+      if (id === "fmt ") {
+        const fmt = Buffer.alloc(16);
+        fs.readSync(fd, fmt, 0, 16, at + 8);
+        channels = fmt.readUInt16LE(2);
+        sampleRate = fmt.readUInt32LE(4);
+        bits = fmt.readUInt16LE(14);
+      } else if (id === "data") {
+        if (bits !== 16) throw new Error(`${file}: expected 16-bit audio, found ${bits}-bit`);
+        // A file written through a pipe may say its data has no end; then it runs to the end of the file.
+        const bytes = Math.min(length, size - at - 8);
+        return { sampleRate, channels, dataOffset: at + 8, frames: Math.floor(bytes / (2 * channels)) };
+      }
+      at += 8 + length + (length % 2);
+    }
+    throw new Error(`${file} has no audio data`);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+export function wavHeader(sampleRate: number, samples: number, channels = 1): Buffer {
+  const data = samples * 2 * channels;
   const header = Buffer.alloc(44);
   header.write("RIFF", 0);
   header.writeUInt32LE(36 + data, 4);
@@ -61,10 +97,10 @@ function wavHeader(sampleRate: number, samples: number): Buffer {
   header.write("fmt ", 12);
   header.writeUInt32LE(16, 16);
   header.writeUInt16LE(1, 20);
-  header.writeUInt16LE(1, 22);
+  header.writeUInt16LE(channels, 22);
   header.writeUInt32LE(sampleRate, 24);
-  header.writeUInt32LE(sampleRate * 2, 28);
-  header.writeUInt16LE(2, 32);
+  header.writeUInt32LE(sampleRate * 2 * channels, 28);
+  header.writeUInt16LE(2 * channels, 32);
   header.writeUInt16LE(16, 34);
   header.write("data", 36);
   header.writeUInt32LE(data, 40);
