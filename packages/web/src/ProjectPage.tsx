@@ -3,7 +3,7 @@ import { api, listen, type Asset, type Snapshot } from "./api";
 import { Markdown } from "./markdown";
 import { RunLog } from "./RunLog";
 import { SceneDrawer } from "./SceneDrawer";
-import { ago, CHAPTER_STATUS, Chip, duration, Link, NotesBox, RUN_KIND, RUN_STATUS, SCENE_STATUS, STAGES, TYPE_NAME, useAction, useRoute, useToast } from "./ui";
+import { ago, CHAPTER_STATUS, Chip, closedMidRun, duration, Link, NotesBox, RUN_KIND, RUN_STATUS, SCENE_STATUS, STAGES, TYPE_NAME, useAction, useRoute, useToast } from "./ui";
 
 const TABS = [
   { id: "plan", name: "Plan" },
@@ -143,6 +143,10 @@ function StageBar({ snap, onChanged }: { snap: Snapshot; onChanged: () => void }
   const failed = snap.runs.find((r) => r.status === "failed" && r.targetKind === ({ outline: "outline", bible: "bible", foundation: "foundation", chapters: "chapter" } as Record<string, string>)[stage.stage]);
   const lastOfKind = snap.runs.find((r) => r.targetKind === failed?.targetKind);
   const stuck = !working && !ready && ["outline", "bible", "foundation", "chapters"].includes(stage.stage);
+  // The newest run of this stage was stopped by the studio closing. What it saved is kept, and Continue lets it finish.
+  const stageKind = ({ outline: "outline", bible: "bible", foundation: "foundation", chapters: "chapter" } as Record<string, string>)[stage.stage];
+  const newest = snap.runs.find((r) => r.targetKind === stageKind);
+  const cutShort = !working && closedMidRun(newest);
   const canAsk = ["outline", "bible", "foundation", "chapters"].includes(stage.stage) && !working && ready;
   const sceneWork = stage.stage === "scenes" && snap.scenes.some((s) => ["planned", "spec_ready", "failed"].includes(s.status)) && !working;
 
@@ -176,7 +180,13 @@ function StageBar({ snap, onChanged }: { snap: Snapshot; onChanged: () => void }
               ))}
             </ul>
           )}
-          {stuck && failed && lastOfKind?.id === failed.id && <p className="notice notice-bad">The last run failed: {failed.error}</p>}
+          {cutShort ? (
+            <p className="notice">
+              The studio was closed before Claude finished this.{ready ? " What it saved is shown here: approve it as it is, or continue to let Claude finish." : " Continue to pick up where it stopped."}
+            </p>
+          ) : (
+            stuck && failed && lastOfKind?.id === failed.id && <p className="notice notice-bad">The last run failed: {failed.error}</p>
+          )}
         </div>
         {!done && (
           <div className="stage-actions">
@@ -190,9 +200,9 @@ function StageBar({ snap, onChanged }: { snap: Snapshot; onChanged: () => void }
                 Ask for changes
               </button>
             )}
-            {(stuck || sceneWork) && (
-              <button className="btn btn-primary" disabled={busy} onClick={() => act(() => api.startStage(slug))}>
-                {sceneWork ? "Build the remaining scenes" : "Start"}
+            {(stuck || sceneWork || cutShort) && (
+              <button className={`btn ${ready ? "" : "btn-primary"}`} disabled={busy} onClick={() => act(() => api.startStage(slug))}>
+                {sceneWork ? "Build the remaining scenes" : cutShort ? "Continue" : "Start"}
               </button>
             )}
           </div>

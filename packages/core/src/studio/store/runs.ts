@@ -22,7 +22,8 @@ export interface AgentRun {
   task: string;
   claudeSessionId: string | null;
   status: RunStatus;
-  payload: { notes?: string; resumeFrom?: string };
+  /** `continued`: this run picks up a run that the studio closing stopped part-way. */
+  payload: { notes?: string; resumeFrom?: string; continued?: boolean };
   /** Relative to the project folder. One JSON object per line. */
   logPath: string | null;
   resultText: string | null;
@@ -52,7 +53,7 @@ export function listRuns(studio: Studio, projectId: string, opts: { targetId?: s
 
 export function createRun(
   studio: Studio,
-  input: { projectId: string; kind: RunKind; targetId?: string | null; agent: string; task?: string; notes?: string; resumeFrom?: string },
+  input: { projectId: string; kind: RunKind; targetId?: string | null; agent: string; task?: string; notes?: string; resumeFrom?: string; continued?: boolean },
 ): AgentRun {
   const project = getProject(studio, input.projectId);
   const id = newId("run");
@@ -60,7 +61,7 @@ export function createRun(
   studio.db.run(
     `INSERT INTO agent_runs (id, project_id, target_kind, target_id, agent, task, payload_json, log_path, queued_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, project.id, input.kind, input.targetId ?? null, input.agent, input.task ?? "build", JSON.stringify({ notes: input.notes, resumeFrom: input.resumeFrom }), logPath, nowIso()],
+    [id, project.id, input.kind, input.targetId ?? null, input.agent, input.task ?? "build", JSON.stringify({ notes: input.notes, resumeFrom: input.resumeFrom, ...(input.continued ? { continued: true } : {}) }), logPath, nowIso()],
   );
   studio.emit("run.changed", { projectId: project.id, targetId: id, data: { status: "queued", target: input.targetId ?? null } });
   return getRun(studio, id);
@@ -135,11 +136,27 @@ export function lastSessionFor(studio: Studio, kind: RunKind, targetId: string |
   )?.s;
 }
 
-/** Runs left "running" by a studio that was closed are marked failed, so they can be started again. */
+/**
+ * The error of a run that stopped because the studio closed, not because it went wrong or
+ * you stopped it. Starting the same work again continues that run's Claude session.
+ */
+export const CLOSED_MID_RUN = "The studio was closed while this was running.";
+
+/** Runs left "running" by a studio that was closed are marked as stopped by the close, so they can be continued. */
 export function failInterruptedRuns(studio: Studio): number {
   const stuck = studio.db.all<{ id: string }>("SELECT id FROM agent_runs WHERE status IN ('queued', 'running')");
   for (const { id } of stuck) {
-    updateRun(studio, id, { status: "failed", error: "The studio was closed while this was running. Start it again.", finishedAt: nowIso() });
+    updateRun(studio, id, { status: "failed", error: CLOSED_MID_RUN, finishedAt: nowIso() });
   }
   return stuck.length;
+}
+
+/** The newest run on one target, if the studio closing stopped it after Claude had started a session. */
+export function closedMidRun(studio: Studio, kind: RunKind, targetId: string | null, projectId: string): AgentRun | undefined {
+  const last = studio.db.get<{ id: string }>(
+    `SELECT id FROM agent_runs WHERE project_id = ? AND target_kind = ? AND COALESCE(target_id, '') = ? ORDER BY queued_at DESC, id DESC LIMIT 1`,
+    [projectId, kind, targetId ?? ""],
+  );
+  const run = last ? getRun(studio, last.id) : undefined;
+  return run && run.status === "failed" && run.error === CLOSED_MID_RUN && run.claudeSessionId ? run : undefined;
 }

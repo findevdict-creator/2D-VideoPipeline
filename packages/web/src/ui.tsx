@@ -39,6 +39,11 @@ export const RUN_STATUS: Record<string, { label: string; tone: string }> = {
   cancelled: { label: "Cancelled", tone: "quiet" },
 };
 
+/** True for a run that stopped because the studio closed. Starting the same work again continues it. */
+export function closedMidRun(run: { status: string; error?: string | null } | undefined): boolean {
+  return run?.status === "failed" && /studio was closed/.test(run.error ?? "");
+}
+
 export const RUN_KIND: Record<string, string> = {
   outline: "Outline",
   bible: "Bible",

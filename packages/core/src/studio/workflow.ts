@@ -16,7 +16,7 @@ import { getChapter, listChapters, syncChapterStatus, updateChapter, type Chapte
 import type { Clip, ClipQuality } from "./store/clips.js";
 import { approveDocument, latestDocument } from "./store/documents.js";
 import { getProject, projectPaths, updateProject, type Project } from "./store/projects.js";
-import { appendRunLog, createRun, failInterruptedRuns, getRun, lastSessionFor, listRuns, updateRun, type AgentRun, type RunKind } from "./store/runs.js";
+import { appendRunLog, CLOSED_MID_RUN, closedMidRun, createRun, failInterruptedRuns, getRun, lastSessionFor, listRuns, updateRun, type AgentRun, type RunKind } from "./store/runs.js";
 import { addReview, approveScene, currentVersion, getScene, getVersion, listScenes, reviseScene, sceneLabel, setSceneStatus, updateVersion, versionPaths, type Scene } from "./store/scenes.js";
 import { approveShared, listShared } from "./store/shared.js";
 import { ensureVoice, getVoiceTrack } from "./voice.js";
@@ -45,6 +45,14 @@ export interface UsagePause {
 }
 
 const CONTINUE = `You were stopped part-way through this task by a usage limit, and can now carry on. Everything you saved through the studio tools, and every file you wrote, is still there: look at what exists first, and do not redo finished work.
+
+The task was:
+
+`;
+
+const CLOSED_WHILE_BUILDING = "The studio was closed while Claude was building this scene. Continue building to pick up where it stopped.";
+
+const AFTER_CLOSE = `You were stopped part-way through this task because the studio was closed, and it has now been started again. Everything you saved through the studio tools, and every file you wrote, is still there: look at what exists first, and do not redo finished work.
 
 The task was:
 
@@ -98,15 +106,26 @@ export class Orchestrator {
     releaseWorkspace(this.studio);
   }
 
-  /** After the studio was closed in the middle of work: nothing is left looking as if it were still being worked on. */
+  /**
+   * After the studio was closed in the middle of work: nothing is left looking as if it were
+   * still being worked on, and each thing says how to pick it up again.
+   */
   private settleInterrupted() {
     const { studio } = this;
     studio.db.run(
       `UPDATE chapters SET status = CASE WHEN EXISTS (SELECT 1 FROM scenes WHERE scenes.chapter_id = chapters.id) THEN 'script_review' ELSE 'planned' END
        WHERE status = 'scripting'`,
     );
-    for (const { id } of studio.db.all<{ id: string }>("SELECT id FROM scenes WHERE status = 'in_production'")) {
-      setSceneStatus(studio, id, "failed", "The studio was closed while this scene was being built. Build it again.");
+    // Renders and joins have no session to continue; what they finished is on disk and the rest is simply done again.
+    const jobs = studio.db.all<{ id: string; project_id: string; kind: string; target_id: string | null }>("SELECT id, project_id, kind, target_id FROM jobs WHERE status IN ('queued', 'running')");
+    for (const job of jobs) {
+      studio.db.run("UPDATE jobs SET status = 'failed', error = ?, finished_at = ? WHERE id = ?", [`${CLOSED_MID_RUN} Start it again.`, nowIso(), job.id]);
+      studio.emit("job.changed", { projectId: job.project_id, targetId: job.id, data: { kind: job.kind, target: job.target_id, status: "failed" } });
+    }
+    for (const scene of studio.db.all<{ id: string }>("SELECT id FROM scenes WHERE status = 'in_production'").map((s) => getScene(studio, s.id))) {
+      // Claude had handed the scene over and only its render was cut short: it needs rendering, not building.
+      if (currentVersion(studio, scene)?.summary) setSceneStatus(studio, scene.id, "stale", "The studio was closed while this scene was being rendered. Render it again.");
+      else setSceneStatus(studio, scene.id, "failed", CLOSED_WHILE_BUILDING);
     }
   }
 
@@ -133,16 +152,19 @@ export class Orchestrator {
     const { studio } = this;
     const busy = listRuns(studio, input.projectId, { active: true }).find((r) => r.targetKind === input.kind && (r.targetId ?? "") === (input.targetId ?? ""));
     if (busy) throw new Error("That is already being worked on. Wait for it to finish, or cancel it first.");
-    const task = input.task ?? (input.notes ? "revise" : "build");
+    // Started again with nothing new to say, after the studio closed part-way through: the same task continues in the same session.
+    const cut = input.notes ? undefined : closedMidRun(studio, input.kind, input.targetId ?? null, input.projectId);
+    const task = cut?.task ?? input.task ?? (input.notes ? "revise" : "build");
     const run = createRun(studio, {
       projectId: input.projectId,
       kind: input.kind,
       targetId: input.targetId,
       agent: agentFor(input.kind),
       task,
-      notes: input.notes,
+      notes: cut ? cut.payload.notes : input.notes,
       // A revision continues the conversation that made the thing, so Claude remembers why it is the way it is.
-      resumeFrom: task === "revise" ? lastSessionFor(studio, input.kind, input.targetId ?? null, input.projectId) : undefined,
+      resumeFrom: cut ? cut.claudeSessionId! : task === "revise" ? lastSessionFor(studio, input.kind, input.targetId ?? null, input.projectId) : undefined,
+      continued: Boolean(cut),
     });
     const abort = new AbortController();
     this.aborts.set(run.id, abort);
@@ -161,7 +183,7 @@ export class Orchestrator {
     const { studio } = this;
     // A run that comes up while a usage limit is in force waits its turn here instead of running into the limit itself.
     await this.clearToRun(signal);
-    if (signal.aborted) return updateRun(studio, runId, { status: "cancelled", finishedAt: nowIso() });
+    if (signal.aborted) return updateRun(studio, runId, this.stopped ? { status: "failed", error: CLOSED_MID_RUN, finishedAt: nowIso() } : { status: "cancelled", finishedAt: nowIso() });
     let run = updateRun(studio, runId, { status: "running", startedAt: nowIso() });
     const project = getProject(studio, run.projectId);
     const p = projectPaths(studio, project);
@@ -184,11 +206,13 @@ export class Orchestrator {
     }
     fs.mkdirSync(cwd, { recursive: true });
 
+    const task = taskPrompt(project, run, target);
     const request = {
       run,
       project,
       systemPrompt: systemPrompt(run.targetKind),
-      prompt: taskPrompt(project, run, target),
+      // A run the studio's closing cut short is told so, and looks at what it already saved before going on.
+      prompt: (run.payload.continued ? AFTER_CLOSE : "") + task,
       cwd,
       writesFiles: run.targetKind === "scene",
       model: studio.config.model,
@@ -198,7 +222,7 @@ export class Orchestrator {
       },
       signal,
     };
-    log("info", `${run.agent} started${run.payload.notes ? ` on your notes: ${run.payload.notes}` : ""}`);
+    log("info", run.payload.continued ? `${run.agent} continues where it stopped when the studio closed${run.payload.notes ? `, on your notes: ${run.payload.notes}` : ""}` : `${run.agent} started${run.payload.notes ? ` on your notes: ${run.payload.notes}` : ""}`);
     const started = Date.now();
     const once = async (attempt: typeof request & { resumeSessionId?: string }) => {
       try {
@@ -236,12 +260,14 @@ export class Orchestrator {
           run = updateRun(studio, runId, { status: "running" });
           log("info", "Carrying on.");
           const session = run.claudeSessionId ?? run.payload.resumeFrom;
-          attempt = session ? { ...request, prompt: CONTINUE + request.prompt, resumeSessionId: session } : { ...request };
+          attempt = session ? { ...request, prompt: CONTINUE + task, resumeSessionId: session } : { ...request };
         }
       }
     } catch (err) {
       const message = (err as Error).message;
       log("error", message);
+      // Stopped by the studio closing rather than by you: kept apart, so starting it again continues it.
+      if (signal.aborted && this.stopped) return updateRun(studio, runId, { status: "failed", error: CLOSED_MID_RUN, durationMs: Date.now() - started, finishedAt: nowIso() });
       return updateRun(studio, runId, { status: signal.aborted ? "cancelled" : "failed", error: message, durationMs: Date.now() - started, finishedAt: nowIso() });
     }
   }
@@ -406,6 +432,9 @@ export class Orchestrator {
             .filter((c) => c.status === "planned" || c.status === "script_review")
             .map((c) => this.scriptChapter(c.id, notes));
         }
+        // A scene list the studio's closing cut short is finished first, in the session that was writing it.
+        const cut = listChapters(studio, projectId).filter((c) => c.status !== "in_production" && c.status !== "done" && closedMidRun(studio, "chapter", c.id, projectId));
+        if (cut.length) return cut.map((c) => this.scriptChapter(c.id));
         const run = this.scriptNextChapter(projectId);
         return run ? [run] : [];
       }
@@ -569,6 +598,7 @@ export class Orchestrator {
     const sceneId = run.targetId!;
     const version = currentVersion(studio, getScene(studio, sceneId));
     if (run.status === "cancelled") return setSceneStatus(studio, sceneId, "failed", "The run was cancelled.");
+    if (run.error === CLOSED_MID_RUN) return setSceneStatus(studio, sceneId, "failed", CLOSED_WHILE_BUILDING);
     if (run.status !== "done") return setSceneStatus(studio, sceneId, "failed", run.error ?? "The run failed.");
     if (!version?.summary) {
       const problems = version?.checkProblems.length ? ` Its last check reported: ${version.checkProblems.slice(0, 3).join("; ")}` : "";

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { api, type Keyframes, type SceneDetail, type Snapshot } from "./api";
 import { RunLog } from "./RunLog";
 import { VersionCompare } from "./VersionCompare";
-import { ago, Chip, duration, NotesBox, RUN_STATUS, SCENE_STATUS, TYPE_NAME, useAction } from "./ui";
+import { ago, Chip, closedMidRun, duration, NotesBox, RUN_STATUS, SCENE_STATUS, TYPE_NAME, useAction } from "./ui";
 
 /** One scene, opened: watch it, approve it or say what to change, and see how it got here. */
 export function SceneDrawer({ sceneId, snapshot, refreshKey, onClose }: { sceneId: string; snapshot: Snapshot; refreshKey: number; onClose: () => void }) {
@@ -92,7 +92,7 @@ export function SceneDrawer({ sceneId, snapshot, refreshKey, onClose }: { sceneI
             )}
             {scene.status === "failed" && (
               <button className="btn btn-primary" disabled={busy} onClick={() => act(() => api.buildScene(scene.id))}>
-                Build it again
+                {closedMidRun(run) ? "Continue building" : "Build it again"}
               </button>
             )}
             {(scene.status === "stale" || scene.status === "rendered") && (
