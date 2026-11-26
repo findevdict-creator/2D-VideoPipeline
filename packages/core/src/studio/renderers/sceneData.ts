@@ -1,10 +1,11 @@
 import { createTikTokStyleCaptions, type Caption } from "@remotion/captions";
-import type { CaptionPage, FootageData, OverlayData, SceneData, ShotData, VideoData } from "@pipeline/lib/types";
+import type { AssetData, CaptionPage, FootageData, OverlayData, SceneData, ShotData, VideoData } from "@pipeline/lib/types";
 import { unRespell } from "../../render/project.js";
 import type { Pronunciations } from "../../voice/text.js";
 import type { SceneSpec } from "../model/scene.js";
 import type { Studio } from "../studio.js";
-import { getAsset } from "../store/assets.js";
+import type { ModelInfo } from "../assets/gltf.js";
+import { findAsset, getAsset } from "../store/assets.js";
 import type { Project } from "../store/projects.js";
 import type { Scene, SceneVersion } from "../store/scenes.js";
 import { cueFrames, framesOf, type VoiceTrack } from "../voice.js";
@@ -77,6 +78,7 @@ export function buildSceneData(
     kind: spec.type === "illustration" ? "illustration" : spec.type === "footage" ? "footage" : "code",
     overlays,
   };
+  if (spec.assets.length) sceneData.assets = assetData(studio, project.id, spec.assets);
   if (spec.type === "illustration") sceneData.illustration = illustrationData(studio, spec, durationInFrames, when);
   if (spec.type === "footage") sceneData.footage = footageData(studio, spec, durationInFrames, fps);
 
@@ -99,6 +101,28 @@ export function buildSceneData(
     },
     music: { src: null, volume: 0 },
   };
+}
+
+/** The files a code scene loads, as the library's useAsset() hands them out. Ids that do not exist are left out; the check reports them. */
+function assetData(studio: Studio, projectId: string, ids: string[]): Record<string, AssetData> {
+  const out: Record<string, AssetData> = {};
+  for (const id of ids) {
+    const asset = findAsset(studio, projectId, id);
+    if (!asset) continue;
+    const model = asset.meta.model as ModelInfo | undefined;
+    out[id] = {
+      src: asset.path,
+      kind: asset.kind,
+      label: asset.label,
+      width: asset.width,
+      height: asset.height,
+      durationSec: asset.durationSec,
+      ...(model
+        ? { model: { size: model.size, center: model.center, parts: model.parts.map((p) => p.name), animations: model.animations.map((a) => ({ name: a.name, durationSec: a.durationSec })) } }
+        : {}),
+    };
+  }
+  return out;
 }
 
 function illustrationData(

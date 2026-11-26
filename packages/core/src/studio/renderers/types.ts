@@ -44,8 +44,16 @@ export interface Renderer {
   readonly type: SceneType;
   /** Changes when the renderer would draw the same input differently, so old clips are not reused. */
   readonly revision: string;
-  /** Problems that would stop a render: rule breaks, type errors, missing files. Does not render. */
-  check(ctx: RenderContext): Promise<string[]>;
+  /**
+   * Why scenes of this type cannot be built on this machine, or null when they can.
+   * Renderers that need nothing extra installed leave it out.
+   */
+  unavailable?(studio: Studio): string | null;
+  /**
+   * Problems that would stop a render: rule breaks, type errors, missing files. Does not render.
+   * Things worth knowing that do not stop it are added to `notes`.
+   */
+  check(ctx: RenderContext, notes?: string[]): Promise<string[]>;
   /** Render still frames into `outDir`. Returns their paths, one per frame, in order. */
   stills(ctx: RenderContext, frames: number[], outDir: string, scale: number): Promise<string[]>;
   render(ctx: RenderContext, q: QualitySettings, output: string, onProgress: (progress: number) => void): Promise<ClipResult>;

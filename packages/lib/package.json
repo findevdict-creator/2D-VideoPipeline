@@ -6,12 +6,20 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./three": "./src/three/index.ts",
     "./types": "./src/types.ts",
     "./webpack-override": "./webpack-override.ts"
   },
   "dependencies": {
+    "@react-three/drei": "^10.7.9",
+    "@react-three/fiber": "^9.8.2",
+    "@remotion/three": "^4.0.544",
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "remotion": "4.0.544"
+    "remotion": "4.0.544",
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.187.0"
   }
 }

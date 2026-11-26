@@ -12,6 +12,7 @@ import { availableSceneTypes } from "../renderers/registry.js";
 import { renderSharedPreview, typecheckScene } from "../renderers/remotion.js";
 import { checkScene, renderSceneStills } from "../scenes/render.js";
 import { checkSpecAssets } from "../scenes/validate.js";
+import type { ModelInfo } from "../assets/gltf.js";
 import { listAssets, listProjectReferences } from "../store/assets.js";
 import { getChapter, listChapters, proposeChapters } from "../store/chapters.js";
 import { latestDocument, listDocuments, readDocument, saveDocument } from "../store/documents.js";
@@ -40,10 +41,22 @@ export { ToolRefusal, type ToolContext, type ToolDef, type ToolOutput } from "./
 export const SCENE_TYPE_GUIDE: Record<SceneType, string> = {
   "remotion-2d": "Animated 2D diagram written as code: shapes, icons, labels, charts and motion timed to the narration. The default choice.",
   r3f: "3D scene written as code with react-three-fiber. For depth, rotation and real objects seen from a moving camera.",
-  manim: "Mathematical animation written with Manim: equations, graphs and geometry that transform step by step.",
+  manim: "Mathematical animation written in Python with Manim: equations, graphs, number lines and geometry that are drawn and transform step by step. For maths; anything else is easier as remotion-2d.",
   illustration: "One or more of the project's images with a slow camera move, labels and arrows on top. Needs an image asset.",
   footage: "A video clip from the project's assets, fitted to the narration, with labels on top. Needs a video asset.",
 };
+
+/** What a scene builder needs to know to use a 3D model: its parts by name, its animations, and its size. */
+function modelSummary(model: ModelInfo) {
+  return {
+    howToUse: 'In an r3f scene: list the asset id under "assets" in the spec, then <Model asset="<id>" fit={4} />. Move, hide or recolour parts by name with its "parts" prop; show an animation at a time in seconds with its "animations" prop.',
+    sizeInItsOwnUnits: model.size,
+    parts: model.parts.map((p) => ({ name: p.name, inside: p.parent, position: p.position })),
+    animations: model.animations.map((a) => ({ name: a.name, durationSec: a.durationSec, moves: a.parts })),
+    triangles: model.triangles,
+    warnings: model.warnings,
+  };
+}
 
 function scopeOf(ctx: ToolContext, writers: RunKind[]) {
   if (!ctx.run) throw new ToolRefusal("This tool changes the project, and this session is not part of a run. Only reading is allowed here.");
@@ -78,7 +91,7 @@ const tools: ToolDef<any>[] = [
       const { studio } = ctx;
       const project = getProject(studio, ctx.projectId);
       const assets = new Map(listAssets(studio, project.id).map((a) => [a.id, a]));
-      const types = availableSceneTypes().filter((t) => project.settings.sceneTypes.includes(t));
+      const types = availableSceneTypes(studio).filter((t) => project.settings.sceneTypes.includes(t));
       return {
         title: project.title,
         description: project.description,
@@ -198,13 +211,14 @@ const tools: ToolDef<any>[] = [
           durationSec: a.durationSec,
           note: a.sourceNote,
           reference: refs.get(a.id) ? { role: refs.get(a.id)!.role, note: refs.get(a.id)!.note } : null,
+          ...(a.meta.model ? { model: modelSummary(a.meta.model as ModelInfo) } : {}),
         })),
       };
     },
   }),
   defineTool({
     name: "asset_view",
-    description: "Look at an image, or at evenly spaced frames of a video clip. Use it on references and on any asset before you put it in a scene.",
+    description: "Look at an image, at evenly spaced frames of a video clip, or at a 3D model from four sides and at the end of each of its animations. Use it on references and on any asset before you put it in a scene.",
     input: z.object({ assetId: z.string(), frames: z.number().int().min(1).max(12).default(4).describe("For video: how many frames to show") }),
     handler: async (ctx, { assetId, frames }) => {
       const asset = listAssets(ctx.studio, ctx.projectId).find((a) => a.id === assetId);
@@ -216,7 +230,8 @@ const tools: ToolDef<any>[] = [
         width: asset.width,
         height: asset.height,
         durationSec: asset.durationSec,
-        images: previews.map((p) => ({ file: p.file, caption: p.atSec !== undefined ? `${asset.label} at ${p.atSec}s` : asset.label })),
+        ...(asset.meta.model ? { model: modelSummary(asset.meta.model as ModelInfo) } : {}),
+        images: previews.map((p) => ({ file: p.file, caption: p.caption ?? (p.atSec !== undefined ? `${asset.label} at ${p.atSec}s` : asset.label) })),
       };
     },
   }),
@@ -357,7 +372,7 @@ const tools: ToolDef<any>[] = [
       const { studio } = ctx;
       const project = getProject(studio, ctx.projectId);
       const chapter = getChapter(studio, run.targetId!);
-      const allowed = availableSceneTypes().filter((t) => project.settings.sceneTypes.includes(t));
+      const allowed = availableSceneTypes(studio).filter((t) => project.settings.sceneTypes.includes(t));
       const problems: string[] = [];
       scenes.forEach((s, i) => {
         if (!allowed.includes(s.type)) problems.push(`scenes.${i}: type "${s.type}" is not available in this project. Choose from: ${allowed.join(", ")}.`);
@@ -422,7 +437,8 @@ const tools: ToolDef<any>[] = [
   }),
   defineTool({
     name: "scene_check",
-    description: "Check your scene: its code is type-checked and scanned for things that break renders. Returns the problems, or none.",
+    description:
+      "Check your scene: its code is scanned for things that break renders and checked for errors (a Manim scene is run once without drawing, which also finds animations that miss their cue). Returns the problems, or none, and sometimes notes that do not need fixing.",
     writers: ["scene"],
     input: z.object({}),
     handler: async (ctx) => {
@@ -430,7 +446,8 @@ const tools: ToolDef<any>[] = [
       const scene = sceneOf(ctx, undefined, true);
       if (!scene.currentVersionId) throw new ToolRefusal("Save a spec with scene_save_spec first.");
       const problems = await checkScene(ctx.studio, scene.id, ctx.log);
-      return problems.length ? { ok: false, problems } : { ok: true };
+      const notes = currentVersion(ctx.studio, getScene(ctx.studio, scene.id))?.checkNotes ?? [];
+      return { ok: problems.length === 0, ...(problems.length ? { problems } : {}), ...(notes.length ? { notes } : {}) };
     },
   }),
   defineTool({

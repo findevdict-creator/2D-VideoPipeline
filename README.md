@@ -2,7 +2,7 @@
 
 A studio for making explainer videos scene by scene. You describe the video. Claude plans it, builds every scene as its own small animation, and you review each scene by itself: approve it, or say what should change and only that scene is rebuilt.
 
-**Status:** Phase 1 of the scene studio is complete: projects, a local database, per-scene clips, your own images and video clips, an MCP server that Claude works through, parallel scene building, and a GUI. 3D scenes, Blender models and Manim come next (see [Roadmap](#roadmap)). The original command-line pipeline still works and is described [further down](#the-original-pipeline).
+**Status:** Phases 1 and 2 of the scene studio are complete: projects, a local database, per-scene clips, your own images and video clips, an MCP server that Claude works through, parallel scene building, a GUI, and five ways to make a scene: 2D animation, 3D with react-three-fiber (including models you made in Blender), Manim, images and video clips. Long videos, sound and finishing come next (see [Roadmap](#roadmap)). The original command-line pipeline still works and is described [further down](#the-original-pipeline).
 
 ## Quick start
 
@@ -11,6 +11,7 @@ You need Node 22 or later, and [Claude Code](https://code.claude.com) installed 
 ```bash
 npm install
 npm run setup:voice     # once: installs Kokoro for the narration
+npm run setup:manim     # once, optional: installs Manim for mathematical scenes
 npm run studio          # opens the studio at http://localhost:4600
 ```
 
@@ -21,6 +22,8 @@ npm run studio -- --runner mock
 ```
 
 `setup:voice` needs Python 3.10, 3.11 or 3.12 (Kokoro does not support 3.13 yet). It creates a private environment in `.venv-voice/`, installs Kokoro, and makes a test clip. The first run downloads the Kokoro model, about 330 MB. If the test clip fails on Windows, install [espeak-ng](https://github.com/espeak-ng/espeak-ng/releases) (the `.msi`) and run it again.
+
+`setup:manim` is only needed for scenes of type `manim`. It needs Python 3.11 or later, creates `.venv-manim/`, installs [Manim Community](https://www.manim.community/) and draws a test scene. On Windows and macOS it usually needs nothing else. On Linux, Manim's text drawing is built from source, so install a compiler and Pango first: `sudo apt install build-essential python3-dev pkg-config libcairo2-dev libpango1.0-dev`. Without Manim the studio works as before and simply does not offer that scene type. Equations are typeset when LaTeX is installed ([MiKTeX](https://miktex.org/download) on Windows, MacTeX on macOS, `texlive` on Linux); without it they are shown as plain text in the video's font, such as a² + b² = c², and the scene's check says so.
 
 On Windows, check that `claude --version` prints a version in the same terminal. If Claude Code is installed but not on your PATH, set `CLAUDE_BIN` to its full path, for example `$env:CLAUDE_BIN = "C:\Users\you\.local\bin\claude.exe"` in PowerShell.
 
@@ -52,17 +55,39 @@ Because each scene has its own clip, joining the video takes seconds. Changing o
 
 Each scene has a type, which decides how it is made.
 
-| Type | What it is | Status |
+| Type | What it is | Good for |
 |---|---|---|
-| `remotion-2d` | A 2D animation written as code with [Remotion](https://www.remotion.dev) and the library in [`packages/lib/`](packages/lib/): shapes, icons, labels and motion timed to the narration | Ready |
-| `illustration` | One or more of your images with a slow camera move, and labels and arrows that appear on cue | Ready |
-| `footage` | One of your video clips, fitted to the narration by trimming, holding the last frame, slowing down or looping, with labels on top | Ready |
-| `r3f` | A 3D scene written as code with react-three-fiber, which can load models made in Blender | Phase 2 |
-| `manim` | Mathematical animation with Manim | Phase 2 |
+| `remotion-2d` | A 2D animation written as code with [Remotion](https://www.remotion.dev) and the library in [`packages/lib/`](packages/lib/): shapes, icons, labels and motion timed to the narration | Most scenes. The default |
+| `r3f` | A 3D scene written as code with [react-three-fiber](https://r3f.docs.pmnd.rs), drawn frame by frame inside Remotion. The camera, lights and every movement are computed from the frame number | Depth, rotation, and real objects seen from a moving camera |
+| `manim` | A mathematical animation written in Python with [Manim](https://www.manim.community/). Needs `npm run setup:manim` | Equations, graphs and geometry that transform step by step |
+| `illustration` | One or more of your images with a slow camera move, and labels and arrows that appear on cue | A picture you already have |
+| `footage` | One of your video clips, fitted to the narration by trimming, holding the last frame, slowing down or looping, with labels on top | A clip you already have, including an AI-generated one |
+
+Whatever its type, a scene becomes the same thing: a silent clip exactly as long as its narration, with the same captions, the same palette and font, and the same entrance. That is why scenes of different types can sit next to each other in one video and be joined without re-encoding.
+
+Claude chooses a type for each scene when it plans a chapter. Under **Plan → Kinds of scene** you choose which types it may pick from, and you can change any scene's type by hand before it is built.
+
+### 3D scenes, and models from Blender
+
+A 3D scene is drawn with a real 3D engine, but it obeys the same rule as every other scene: the picture depends only on the frame number. Nothing moves by itself, so a scene rendered twice gives the same frames, and the scene's check refuses the things that would break that (`useFrame`, clocks, random numbers, anything loaded from the internet). The guide Claude follows is [`packages/lib/README-3D.md`](packages/lib/README-3D.md).
+
+To use something you modelled in Blender, such as a camera for a video about how cameras catch light:
+
+1. In Blender, give each part you want to move or point at its own object with a clear name (`Body`, `Lens`, `Shutter`), and export with **File → Export → glTF 2.0** as a single `.glb` file. Leave compression off.
+2. Drop the `.glb` under **Assets**. The studio reads it and shows what it found: the named parts, the animations, the size, and four pictures of it. It warns about unnamed parts and very heavy meshes, and refuses files it could not show (Draco or Meshopt compression, separate `.bin` or texture files) with what to change in the export.
+3. Claude sees the same list and pictures. In a 3D scene it places your model, moves, hides or recolours its named parts on cue, and plays the animations you made in Blender at the moments the narration calls for them.
+
+The model is yours and stays as you made it; Claude arranges and animates it, and builds the rest of the scene around it.
+
+### Manim scenes
+
+A Manim scene is a Python file. The studio gives it the video's palette and font, the part of the frame that captions leave free, and the time of every cue, so `self.wait_until("area")` holds the picture until the narrator says that phrase. The check runs the scene once without drawing it, which takes a second or two, and reports Python errors with their line, any animation still running when its cue is spoken, and anything cut off by the end of the narration. Manim then draws the scene, and the studio adds captions and overlays on top exactly as for other scenes. The guide Claude follows is [`python/manim/README.md`](python/manim/README.md).
+
+A Manim scene may import only `manim`, `numpy`, `math` and the studio's helper, and may not read files or start programs. This is a check on the code Claude writes, to keep scenes repeatable and self-contained; it is not a security sandbox.
 
 ### Your own files, and references
 
-Under **Assets**, drop in images, video clips and sounds. Claude can see them and use them in `illustration` and `footage` scenes, so a scene that is hard to draw in code can use a clip you made elsewhere, including an AI-generated one.
+Under **Assets**, drop in images, video clips, sounds and 3D models. Claude can see them and use them in `illustration`, `footage` and `r3f` scenes, so a scene that is hard to draw in code can use a clip you made elsewhere, including an AI-generated one.
 
 Any image or clip can also be marked as a **reference** for style, layout or motion, with a note on what to take from it. A reference is a direction, not a target: Claude looks at it and follows the note, and does not try to reproduce it.
 
@@ -81,7 +106,7 @@ Each piece of work is one Claude Code session, started in the background with `c
 
 The server is started for one run and knows which run it serves, so a scene run can change its own scene and nothing else. There is no tool that approves, deletes, or runs a command. A scene run may also read files, and edit the ones in its own scene folder.
 
-A scene run saves its plan, writes the scene file, and calls `scene_check` until the source rules and the type checker pass. Then it renders test frames with `scene_stills`, looks at them, fixes what it sees, and hands over with `scene_submit`. If a scene needs something that should be shared, it files a `shared_request` for you instead of drawing a private copy.
+A scene run saves its plan, writes the scene file (`scene.tsx`, or `scene.py` for Manim), and calls `scene_check` until the source rules and the type checker pass. Then it renders test frames with `scene_stills`, looks at them, fixes what it sees, and hands over with `scene_submit`. If a scene needs something that should be shared, it files a `shared_request` for you instead of drawing a private copy.
 
 ### Speed
 
@@ -121,7 +146,7 @@ Projects live in a **workspace** folder outside the repository: `~/VideoStudio` 
     shared/components/           the current shared parts, imported by scenes as "@shared/<Name>"
     shared/versions/, previews/  every saved version of each shared part, and its preview picture
     voice/<scene>/               the narration, one file per wording
-    scenes/<scene>/v1/, v2/ ...  one folder per version: spec.json, scene.tsx, stills/, clip-*.mp4, review-*.mp4
+    scenes/<scene>/v1/, v2/ ...  one folder per version: spec.json, scene.tsx or scene.py, stills/, clip-*.mp4, review-*.mp4
     renders/                     assembled videos and their .srt subtitles
     runs/                        the log of every Claude run
 ```
@@ -141,6 +166,11 @@ In [`pipeline.config.json`](pipeline.config.json), under `studio`. The voice and
 | `studio.lanes.agents` | `3` | Claude runs at the same time |
 | `studio.lanes.renders` | `2` | Scene renders at the same time. Each one runs a browser, so memory is the limit |
 | `studio.lanes.light` | `1` | Short jobs, such as recording narration and joining clips |
+| `studio.modelTriangleBudget` | `300000` | A 3D model with more triangles than this gets a warning when added: it renders, but slowly |
+| `render.gl` | empty | How Chrome draws 3D scenes. Empty tries the graphics card (`angle`) and falls back to software (`swangle`), which is slower but works anywhere. Also `REMOTION_GL` |
+| `render.manim.python` | empty | Python to run Manim with. Empty means the one `setup:manim` installed. Also `MANIM_PYTHON` |
+| `render.manim.timeoutSec` | `600` | How long Manim may take to draw one scene before it is stopped |
+| `render.manim.latex` | `auto` | `off` shows equations as plain text even when LaTeX is installed |
 | `runner` | `claude-cli` | `mock` writes fixed samples instead of calling Claude. Also `--runner` or `PIPELINE_RUNNER` |
 | `model` | `opus` | Model for every run. Also `--model` or `PIPELINE_MODEL` |
 
@@ -151,7 +181,7 @@ npm test            # the studio and the original pipeline
 npm run typecheck   # the studio, the Remotion library and the GUI
 ```
 
-Tests that render real video run only when `REMOTION_BROWSER_EXECUTABLE` points to a Chrome:
+Tests that render real video run only when `REMOTION_BROWSER_EXECUTABLE` points to a Chrome, and tests of Manim scenes only where Manim is installed (after `npm run setup:manim`, or with `MANIM_PYTHON` set):
 
 ```bash
 REMOTION_BROWSER_EXECUTABLE=/path/to/chrome npm test
@@ -164,13 +194,14 @@ Code map:
 - `packages/server/`: the local server behind the GUI
 - `packages/web/`: the GUI, a React app that the server bundles when it starts
 - `packages/cli/`: the `studio` and `pipeline` commands
-- `packages/lib/`: the Remotion library scenes are written with, and its manual
+- `packages/lib/`: the Remotion library scenes are written with, and its manual. `src/three/` is the 3D half
+- `python/manim/`: what Manim scenes build on, the code that checks and runs them, and their manual
 - `packages/core/src/` outside `studio/`: the original pipeline, and the voice and render code both share
 
 ## Roadmap
 
 1. **Scene studio** (done): projects and database, per-scene clips, images and footage, MCP server, shared parts, parallel scene runs, GUI
-2. **More ways to make a scene**: 3D scenes with react-three-fiber, models from Blender as glTF, and Manim
+2. **More ways to make a scene** (done): 3D scenes with react-three-fiber, models from Blender as glTF, and Manim
 3. **Long videos**: chapters that are planned and assembled one at a time, and a queue that copes with hundreds of scenes
 4. **Consistency and sound**: stronger use of references and recurring characters, sound effects and music
 5. **Finishing**: comparing versions side by side, and export options

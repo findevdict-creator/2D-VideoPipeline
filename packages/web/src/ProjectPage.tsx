@@ -242,8 +242,50 @@ function PlanTab({ snap }: { snap: Snapshot }) {
             {theme.fontFamily} · {theme.visualStyle}
           </p>
         </section>
+        <SceneTypes snap={snap} />
       </div>
     </div>
+  );
+}
+
+/** Which kinds of scene Claude may choose when it plans a chapter. A scene's own kind can always be changed by hand. */
+function SceneTypes({ snap }: { snap: Snapshot }) {
+  const [busy, act] = useAction();
+  const allowed = snap.project.settings.sceneTypes;
+  const toggle = (type: string) => {
+    const next = allowed.includes(type) ? allowed.filter((t) => t !== type) : [...allowed, type];
+    if (!next.some((t) => snap.sceneTypes.some((s) => s.type === t))) return;
+    void act(() => api.updateSettings(snap.project.slug, { sceneTypes: next }));
+  };
+  return (
+    <section className="card">
+      <h3>Kinds of scene</h3>
+      <p className="muted small">Claude picks one of these for each scene when it plans a chapter. You can change a scene's kind before it is built.</p>
+      <ul className="types">
+        {snap.sceneTypes.map((t) => (
+          <li key={t.type}>
+            <label className="check">
+              <input type="checkbox" checked={allowed.includes(t.type)} disabled={busy} onChange={() => toggle(t.type)} />
+              <span>
+                <strong>{TYPE_NAME[t.type] ?? t.type}</strong>
+                <span className="muted small"> · {t.about}</span>
+              </span>
+            </label>
+          </li>
+        ))}
+        {snap.missingSceneTypes.map((t) => (
+          <li key={t.type}>
+            <label className="check">
+              <input type="checkbox" checked={false} disabled readOnly />
+              <span>
+                <strong>{TYPE_NAME[t.type] ?? t.type}</strong>
+                <span className="muted small"> · Not set up on this computer. {t.why}</span>
+              </span>
+            </label>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -394,10 +436,11 @@ function AssetsTab({ snap, slug }: { snap: Snapshot; slug: string }) {
         }}
       >
         <p>
-          <strong>Drop images, video clips or sounds here</strong>
+          <strong>Drop images, video clips, sounds or 3D models here</strong>
         </p>
         <p className="muted">
-          Use them in image and video-clip scenes, or mark one as a reference to show Claude a style, a layout or a kind of motion. A reference is a direction, not something to copy.
+          Use them in image and video-clip scenes, or mark one as a reference to show Claude a style, a layout or a kind of motion. A reference is a direction, not something to copy. A model made in Blender
+          goes in as a .glb file, and 3D scenes can move its named parts and play its animations.
         </p>
         <button className="btn" disabled={busy} onClick={() => input.current?.click()}>
           {busy ? "Adding…" : "Choose files"}
@@ -426,13 +469,34 @@ function AssetCard({ asset }: { asset: Asset }) {
         <video className="thumb" src={asset.url} controls preload="metadata" />
       ) : asset.kind.startsWith("audio") && asset.url ? (
         <audio className="audio" src={asset.url} controls preload="none" />
+      ) : asset.kind === "model" && asset.previewUrl ? (
+        <img className="thumb thumb-model" src={asset.previewUrl} alt={asset.label} loading="lazy" />
       ) : (
-        <div className="thumb thumb-empty">{asset.kind}</div>
+        <div className="thumb thumb-empty">{asset.kind === "model" ? "3D model" : asset.kind}</div>
       )}
       <strong>{asset.label}</strong>
       <span className="muted small">
-        {asset.kind.replace("audio_", "")} {asset.width ? `· ${asset.width}×${asset.height}` : ""} {asset.durationSec ? `· ${duration(asset.durationSec)}` : ""}
+        {asset.kind === "model" ? "3D model" : asset.kind.replace("audio_", "")} {asset.width ? `· ${asset.width}×${asset.height}` : ""} {asset.durationSec ? `· ${duration(asset.durationSec)}` : ""}
+        {asset.model ? `· ${asset.model.parts.length} parts · ${asset.model.triangles.toLocaleString()} triangles` : ""}
       </span>
+      {asset.model && (
+        <>
+          <details className="small">
+            <summary>Parts and animations</summary>
+            <p>
+              <span className="muted">Parts Claude can move, hide or recolour:</span> {asset.model.parts.map((p) => p.name).join(", ") || "none with a name"}
+            </p>
+            <p>
+              <span className="muted">Animations:</span> {asset.model.animations.map((a) => `${a.name} (${a.durationSec} s)`).join(", ") || "none"}
+            </p>
+          </details>
+          {asset.model.warnings.map((w) => (
+            <p key={w} className="notice small">
+              {w}
+            </p>
+          ))}
+        </>
+      )}
       {canBeReference && (
         <label className="small">
           Use as a reference for

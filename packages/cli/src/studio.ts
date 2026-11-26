@@ -10,6 +10,7 @@ import { Orchestrator } from "@studio/core/studio/workflow";
 import { findScene, getScene, listScenes, sceneLabel } from "@studio/core/studio/store/scenes";
 import { ensureVoice } from "@studio/core/studio/voice";
 import { REFERENCE_ROLES } from "@studio/core/studio/model/asset";
+import type { ModelInfo } from "@studio/core/studio/assets/gltf";
 import { importAsset, listAssets, listProjectReferences, setProjectReference } from "@studio/core/studio/store/assets";
 import { assemble } from "@studio/core/studio/assemble";
 import { checkScene, renderSceneClip, renderSceneStills } from "@studio/core/studio/scenes/render";
@@ -162,6 +163,13 @@ async function run(studio: Studio, command: string, rest: string[], flags: { fin
       const asset = await importAsset(studio, project.id, file, { label: files.length === 1 ? flags.label : undefined });
       if (role) setProjectReference(studio, project.id, { assetId: asset.id, role: role as (typeof REFERENCE_ROLES)[number], note: flags.note ?? "" });
       console.log(`${asset.id}  ${asset.kind}  ${asset.label}${role ? `  (${role} reference)` : ""}`);
+      const model = asset.meta.model as ModelInfo | undefined;
+      if (model) {
+        console.log(`  ${model.triangles.toLocaleString("en-US")} triangles, ${model.size.join(" x ")} units`);
+        console.log(`  parts: ${model.parts.map((p) => p.name).join(", ") || "none with a name"}`);
+        console.log(`  animations: ${model.animations.map((a) => `${a.name} (${a.durationSec}s)`).join(", ") || "none"}`);
+        for (const warning of model.warnings) console.log(`  Warning: ${warning}`);
+      }
     }
     return;
   }

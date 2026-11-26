@@ -9,7 +9,9 @@ import { listRuns } from "@studio/core/studio/store/runs";
 import { getScene, listReviews, listScenes, listVersions, readSource, sceneLabel, sceneNarration, versionPaths, type Scene, type SceneVersion } from "@studio/core/studio/store/scenes";
 import { listShared, listSharedRequests, readShared, sharedVersions } from "@studio/core/studio/store/shared";
 import { getVoiceTrack } from "@studio/core/studio/voice";
-import { availableSceneTypes } from "@studio/core/studio/renderers/registry";
+import type { ModelInfo } from "@studio/core/studio/assets/gltf";
+import { modelThumbnail } from "@studio/core/studio/renderers/modelPreview";
+import { availableSceneTypes, unavailableSceneTypes } from "@studio/core/studio/renderers/registry";
 import { SCENE_TYPE_GUIDE } from "@studio/core/studio/tools/index";
 import type { Orchestrator } from "@studio/core/studio/workflow";
 
@@ -33,6 +35,7 @@ function versionView(studio: Studio, project: Project, v: SceneVersion) {
     createdAt: v.createdAt,
     summary: v.summary,
     checkProblems: v.checkProblems,
+    checkNotes: v.checkNotes,
     durationSec: track?.durationSec ?? null,
     stills: v.stills.map((s) => ({ frame: s.frame, url: fileUrl(studio, project, s.file) })).filter((s) => s.url),
     reviewUrl: fileUrl(studio, project, p.rel(paths.review("preview"))),
@@ -106,7 +109,9 @@ export function projectSnapshot(studio: Studio, orchestrator: Orchestrator, idOr
   return {
     project,
     stage: orchestrator.stageStatus(project.id),
-    sceneTypes: availableSceneTypes().map((t) => ({ type: t, about: SCENE_TYPE_GUIDE[t] })),
+    sceneTypes: availableSceneTypes(studio).map((t) => ({ type: t, about: SCENE_TYPE_GUIDE[t] })),
+    /** Scene types this machine cannot build until something is installed. */
+    missingSceneTypes: unavailableSceneTypes(studio).map((t) => ({ ...t, about: SCENE_TYPE_GUIDE[t.type] })),
     documents: { outline: latest("outline"), bible: latest("bible") },
     chapters: listChapters(studio, project.id),
     scenes: listScenes(studio, project.id).map((s) => sceneCard(studio, project, s)),
@@ -116,7 +121,17 @@ export function projectSnapshot(studio: Studio, orchestrator: Orchestrator, idOr
       versions: sharedVersions(studio, s.id).map((v) => ({ version: v.version, notes: v.notes, createdAt: v.createdAt, previewUrl: fileUrl(studio, project, v.previewPath) })),
     })),
     sharedRequests: listSharedRequests(studio, project.id, "open"),
-    assets: listAssets(studio, project.id).map((a) => ({ ...a, url: fileUrl(studio, project, a.path), reference: refs.get(a.id) ?? null })),
+    assets: listAssets(studio, project.id).map((a) => {
+      const thumb = a.kind === "model" ? modelThumbnail(studio, project, a) : null;
+      return {
+        ...a,
+        url: fileUrl(studio, project, a.path),
+        /** A picture of a 3D model, once it has been drawn. */
+        previewUrl: thumb ? fileUrl(studio, project, projectPaths(studio, project).rel(thumb)) : null,
+        model: (a.meta.model as ModelInfo | undefined) ?? null,
+        reference: refs.get(a.id) ?? null,
+      };
+    }),
     runs: listRuns(studio, project.id, { limit: 60 }),
     jobs: studio.db.all("SELECT id, kind, target_id AS targetId, status, progress, error, queued_at AS queuedAt FROM jobs WHERE project_id = ? ORDER BY queued_at DESC, id DESC LIMIT 30", [project.id]),
     renders: listRenders(studio, project.id).map((r) => ({ ...r, url: fileUrl(studio, project, r.path), srtUrl: fileUrl(studio, project, r.srtPath) })),

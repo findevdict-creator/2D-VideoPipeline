@@ -31,6 +31,9 @@ export function checkSceneSource(code: string, opts: { allowed?: string[]; allow
   if (/\bMath\.random\s*\(/.test(code)) {
     problems.push('Math.random() makes every render different. Use random("some-seed") from "remotion".');
   }
+  if (/\bDate\.now\s*\(|\bnew\s+Date\s*\(\s*\)|\bperformance\.now\s*\(/.test(code)) {
+    problems.push("The clock makes every render different. Derive time from useCurrentFrame() and the video's fps.");
+  }
   if (/@keyframes|\b(?:transition|animation)\s*:\s*["'`][^"'`]*\d(?:\.\d+)?m?s\b/.test(code)) {
     problems.push("CSS transitions, animations and @keyframes do not render. Drive motion from useCurrentFrame() with interpolate().");
   }

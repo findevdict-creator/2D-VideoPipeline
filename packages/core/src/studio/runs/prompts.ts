@@ -1,4 +1,4 @@
-import { LIB_EXAMPLE, LIB_README } from "../../paths.js";
+import { LIB_EXAMPLE, LIB_EXAMPLE_3D, LIB_README, LIB_README_3D, MANIM_EXAMPLE, MANIM_README } from "../../paths.js";
 import type { Project } from "../store/projects.js";
 import type { AgentRun, RunKind } from "../store/runs.js";
 
@@ -64,11 +64,13 @@ Narration is for the ear: short sentences, one idea each, concrete words, number
 
 Then, by the scene's type:
 - "remotion-2d": read the library guide at ${LIB_README} and the example at ${LIB_EXAMPLE}. Write the scene to the code file scene_get named, as a React component that default-exports the scene. Time every entrance with useCueAppear("<cue id>") or useCueFrame("<cue id>"). Use shared components for anything they cover (shared_get shows their props) and list them under "uses" in the spec. Import only from "@pipeline/lib", "remotion", "react" and "@shared/<Name>".
+- "r3f": a 3D scene. Read the library guide at ${LIB_README}, then the 3D guide at ${LIB_README_3D} and the example at ${LIB_EXAMPLE_3D}. Write the scene to the code file scene_get named, as a React component that default-exports the scene and draws its 3D picture inside <Scene3D>. The frame is the only clock: compute the camera and every position and rotation from useCurrentFrame() and the cue hooks, and never use useFrame or anything that moves by itself. To use a model the person made in Blender, find it with asset_list, look at it with asset_view, list its id under "assets" in the spec, and draw it with <Model>; move its named parts and show its animations from the frame. Put words on screen with 2D <Label>s on top, placed with useScreenPoint.
+- "manim": a mathematical animation in Python. Read the guide at ${MANIM_README} and the example at ${MANIM_EXAMPLE}. Write the scene to the code file scene_get named (scene.py), as class Main(StudioScene) with a build(self) method. Before each thing happens, call self.wait_until("<cue id>") so it starts as the narrator says the phrase; keep every run_time short enough that the next cue is not reached late, which scene_check measures and reports. Take colours from theme and place things inside safe, which leaves the caption strip free. Import only manim, numpy, math and pipeline_manim.
 - "illustration": there is no code. In the spec, choose the image (asset_view it first) and describe the camera as shots: where it starts, where it ends, and which cue brings the next image. Add labels, arrows and callouts as overlays, each timed to a cue.
 - "footage": there is no code. In the spec, choose the clip, the part of it to use (inSec, outSec), and what happens if it is shorter than the narration (fit). Add overlays timed to cues.
 
 4. Call scene_check and fix what it reports.
-5. Call scene_stills and look at every image. Check: nothing overlaps or is cut off, text is large and short, everything sits inside the frame and above the caption strip at the bottom, each thing has appeared by the frame after its cue, and the look follows the bible. Fix and repeat until the stills are right.
+5. Call scene_stills and look at every image. For a 3D scene also ask for frames spread through the scene, since the camera moves. Check: nothing overlaps or is cut off, text is large and short, everything sits inside the frame and above the caption strip at the bottom, each thing has appeared by the frame after its cue, and the look follows the bible. Fix and repeat until the stills are right.
 6. Call scene_submit with a sentence or two on what you built. Without it, the scene is not handed over.`,
   },
 };

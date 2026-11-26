@@ -30,6 +30,7 @@ export const api = {
   projects: () => request<{ workspace: string; runner: string; projects: ProjectSummary[] }>("GET", "/api/projects"),
   createProject: (input: { description: string; title?: string; targetDurationSec: number; aspect: string }) => request<{ slug: string }>("POST", "/api/projects", input),
   project: (slug: string) => request<Snapshot>("GET", `/api/projects/${encodeURIComponent(slug)}`),
+  updateSettings: (slug: string, settings: { sceneTypes?: string[] }) => request("PATCH", `/api/projects/${encodeURIComponent(slug)}`, { settings }),
   startStage: (slug: string, notes?: string) => request("POST", `/api/projects/${encodeURIComponent(slug)}/stage/start`, { notes }),
   approveStage: (slug: string) => request<{ stage: Stage }>("POST", `/api/projects/${encodeURIComponent(slug)}/stage/approve`, {}),
   assemble: (slug: string, quality: "preview" | "final") => request("POST", `/api/projects/${encodeURIComponent(slug)}/assemble`, { quality }),

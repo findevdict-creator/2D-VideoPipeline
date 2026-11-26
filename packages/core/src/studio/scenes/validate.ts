@@ -17,6 +17,11 @@ export function checkSpecAssets(studio: Studio, projectId: string, spec: SceneSp
 
   spec.references.forEach((r, i) => need(r.assetId, ["image", "video"], `references.${i}`));
   spec.sfx.forEach((s, i) => need(s.assetId, ["audio_sfx", "audio_music"], `sfx.${i}`));
+  spec.assets.forEach((assetId, i) => {
+    const asset = need(assetId, ["model", "image"], `assets.${i}`);
+    if (asset?.kind === "model" && spec.type !== "r3f") problems.push(`assets.${i}: "${asset.label}" is a 3D model, which only a scene of type r3f can show`);
+    if (spec.type === "manim") problems.push(`assets.${i}: a Manim scene draws everything itself and cannot load project files. Remove "assets", or use another scene type for this file`);
+  });
 
   if (spec.type === "illustration") {
     spec.illustration.shots.forEach((s, i) => need(s.assetId, ["image"], `illustration.shots.${i}`));

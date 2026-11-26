@@ -63,8 +63,9 @@ export async function sceneContext(studio: Studio, sceneId: string, log: Log = q
 export async function checkScene(studio: Studio, sceneId: string, log: Log = quiet): Promise<string[]> {
   const ctx = await sceneContext(studio, sceneId, log);
   const problems = checkSpecAssets(studio, ctx.project.id, ctx.version.spec);
-  if (!problems.length) problems.push(...(await rendererFor(ctx.version.spec.type).check(ctx)));
-  updateVersion(studio, ctx.version.id, { checkProblems: problems });
+  const notes: string[] = [];
+  if (!problems.length) problems.push(...(await rendererFor(ctx.version.spec.type).check(ctx, notes)));
+  updateVersion(studio, ctx.version.id, { checkProblems: problems, checkNotes: notes });
   return problems;
 }
 

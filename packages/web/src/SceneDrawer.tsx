@@ -144,6 +144,16 @@ export function SceneDrawer({ sceneId, snapshot, refreshKey, onClose }: { sceneI
             </ul>
           </>
         )}
+        {version && version.checkNotes.length > 0 && (
+          <>
+            <h4>Worth knowing</h4>
+            <ul className="notes">
+              {version.checkNotes.map((p, i) => (
+                <li key={i}>{p}</li>
+              ))}
+            </ul>
+          </>
+        )}
         {scene.spec && scene.spec.cues.length > 0 && (
           <>
             <h4>Cues</h4>

@@ -8,7 +8,7 @@ import { FileServer } from "../packages/core/src/studio/media/fileServer.js";
 import { probe } from "../packages/core/src/studio/media/ffmpeg.js";
 import { layVoiceTrack, readWav, resample, writeWav } from "../packages/core/src/studio/media/wav.js";
 import { fitFootage } from "../packages/core/src/studio/renderers/sceneData.js";
-import { availableSceneTypes } from "../packages/core/src/studio/renderers/registry.js";
+import { availableSceneTypes, knownSceneTypes, unavailableSceneTypes } from "../packages/core/src/studio/renderers/registry.js";
 import { checkScene, clipCacheKey, qualitySettings, renderSceneClip, renderSceneStills, sceneContext } from "../packages/core/src/studio/scenes/render.js";
 import { addChapter } from "../packages/core/src/studio/store/chapters.js";
 import { createProject, projectPaths } from "../packages/core/src/studio/store/projects.js";
@@ -148,9 +148,15 @@ test("checking a scene reports code problems before anything is rendered", async
   studio.close();
 });
 
-test("scene types without a renderer yet are not offered", () => {
-  const types = availableSceneTypes();
-  assert.deepEqual(types.sort(), ["footage", "illustration", "remotion-2d"]);
+test("every scene type has a renderer, and one that needs something not installed is not offered", async () => {
+  assert.deepEqual(knownSceneTypes().sort(), ["footage", "illustration", "manim", "r3f", "remotion-2d"]);
+  // A studio whose Python is not there: Manim scenes cannot be built, the rest can.
+  const studio = await tempStudio({ render: { manim: { python: path.join(os.tmpdir(), "no-such-python"), timeoutSec: 600, latex: "auto" } } });
+  assert.deepEqual(availableSceneTypes(studio).sort(), ["footage", "illustration", "r3f", "remotion-2d"]);
+  const missing = unavailableSceneTypes(studio);
+  assert.deepEqual(missing.map((m) => m.type), ["manim"]);
+  assert.match(missing[0]!.why, /npm run setup:manim/);
+  studio.close();
 });
 
 test("final assembly refuses scenes you have not approved", async () => {

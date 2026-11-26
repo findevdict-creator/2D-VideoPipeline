@@ -173,6 +173,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 .thumb-empty { display: grid; place-items: center; color: #7d8799; font-size: 13px; background: var(--panel-2); }
 .shared-card, .asset-card { display: flex; flex-direction: column; gap: 8px; }
 .shared-card .thumb { object-fit: contain; }
+.thumb-model { aspect-ratio: 4 / 3; }
 .audio { width: 100%; }
 
 .drop { border: 2px dashed var(--line); border-radius: var(--radius); padding: 22px; text-align: center; margin-bottom: 16px; }
@@ -228,3 +229,8 @@ summary { cursor: pointer; font-weight: 600; color: var(--muted); }
 .toast-bad { background: var(--bad); color: #fff; }
 .toast-good { background: var(--good); color: #fff; }
 @media (prefers-color-scheme: dark) { .toast-bad { background: #b53340; } .toast-good { background: #1f7a57; } }
+.notes { color: var(--muted); padding-left: 18px; margin: 4px 0; }
+.types { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 8px; }
+label.check { flex-direction: row; gap: 8px; align-items: flex-start; font-weight: 400; cursor: pointer; }
+label.check input { margin-top: 3px; flex: none; width: auto; }
+label.check strong { font-weight: 600; }

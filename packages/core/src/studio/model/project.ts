@@ -46,8 +46,8 @@ export const ProjectSettingsSchema = z.object({
   audience: z.string().default("Curious general viewers"),
   captions: z.boolean().default(true),
   music: z.object({ assetId: z.string().nullable().default(null), volume: z.number().min(0).max(1).default(0.12) }).prefault({}),
-  /** Which scene types the planner may choose from. */
-  sceneTypes: z.array(z.string()).default(["remotion-2d", "illustration", "footage"]),
+  /** Which scene types the planner may choose from. Types this machine cannot build are left out when it asks. */
+  sceneTypes: z.array(z.string()).default(["remotion-2d", "r3f", "manim", "illustration", "footage"]),
 });
 export type ProjectSettings = z.infer<typeof ProjectSettingsSchema>;
 

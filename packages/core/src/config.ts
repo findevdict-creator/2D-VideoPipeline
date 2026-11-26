@@ -62,6 +62,22 @@ export const RenderConfigSchema = z.object({
   concurrency: z.number().int().min(1).nullable().default(null),
   /** Path to a Chrome or Chrome Headless Shell. Empty means Remotion downloads its own. */
   browserExecutable: z.string().default(""),
+  /**
+   * How Chrome draws 3D scenes. Empty tries your graphics card ("angle") and falls back to
+   * software drawing ("swangle"), which is slower but works on any machine.
+   */
+  gl: z.enum(["angle", "swangle", "egl", "vulkan", "angle-egl"]).nullable().default(null),
+  /** Manim scenes. */
+  manim: z
+    .object({
+      /** Python to run Manim with. Empty means: the one setup:manim installed, else python3 / python. */
+      python: z.string().default(""),
+      /** How long Manim may take to draw one scene, in seconds, before it is stopped. */
+      timeoutSec: z.number().int().min(10).max(3600).default(600),
+      /** "auto" typesets equations with LaTeX when it is installed. "off" always shows them as plain text. */
+      latex: z.enum(["auto", "off"]).default("auto"),
+    })
+    .prefault({}),
   /** Length of each scene's entrance transition, in seconds. */
   transitionSec: z.number().min(0).max(2).default(0.4),
   /** Where final videos go, relative to the production folder. */
@@ -114,6 +130,8 @@ export const StudioConfigSchema = z.object({
     .prefault({}),
   /** Check-and-fix rounds a scene agent gets before the scene is marked failed. */
   maxFixRounds: z.number().int().min(0).max(6).default(3),
+  /** Models with more triangles than this get a warning when added: they render, but slowly. */
+  modelTriangleBudget: z.number().int().min(1000).default(300_000),
   /** Port of the local GUI server. */
   port: z.number().int().min(1024).max(65535).default(4600),
 });
@@ -188,6 +206,8 @@ export function loadConfig(overrides: ConfigOverrides = {}): PipelineConfig {
   const render = RenderConfigSchema.parse({
     ...file.render,
     ...(process.env.REMOTION_BROWSER_EXECUTABLE ? { browserExecutable: process.env.REMOTION_BROWSER_EXECUTABLE } : {}),
+    ...(process.env.REMOTION_GL ? { gl: process.env.REMOTION_GL } : {}),
+    ...(process.env.MANIM_PYTHON ? { manim: { ...((file.render?.manim as object | undefined) ?? {}), python: process.env.MANIM_PYTHON } } : {}),
     ...overrides.render,
   });
   const animator = AnimatorConfigSchema.parse({ ...file.animator, ...overrides.animator });
