@@ -97,7 +97,30 @@ export const AnimatorConfigSchema = z.object({
 });
 export type AnimatorConfig = z.infer<typeof AnimatorConfigSchema>;
 
+/** Scene studio settings: where projects live and how much runs at once. */
+export const StudioConfigSchema = z.object({
+  /** Folder that holds studio.db and every project. "~" means your home folder. */
+  workspace: z.string().default("~/VideoStudio"),
+  /** How many of each kind of work run at the same time. */
+  lanes: z
+    .object({
+      /** Claude runs. More is faster but uses your plan faster. */
+      agents: z.number().int().min(1).max(8).default(3),
+      /** Scene renders. Each one runs a browser, so memory is the limit. */
+      renders: z.number().int().min(1).max(8).default(2),
+      /** Voice, imports and other short jobs. */
+      light: z.number().int().min(1).max(4).default(1),
+    })
+    .prefault({}),
+  /** Check-and-fix rounds a scene agent gets before the scene is marked failed. */
+  maxFixRounds: z.number().int().min(0).max(6).default(3),
+  /** Port of the local GUI server. */
+  port: z.number().int().min(1024).max(65535).default(4600),
+});
+export type StudioConfig = z.infer<typeof StudioConfigSchema>;
+
 const FileConfigSchema = z.object({
+  studio: z.record(z.string(), z.unknown()).optional(),
   runner: z.enum(["claude-cli", "agent-sdk", "mock"]).optional(),
   model: z.string().optional(),
   productionsDir: z.string().optional(),
@@ -125,9 +148,11 @@ export interface PipelineConfig {
   voice: VoiceConfig;
   render: RenderConfig;
   animator: AnimatorConfig;
+  studio: StudioConfig;
 }
 
-export type ConfigOverrides = Partial<Omit<PipelineConfig, "voice" | "render" | "animator">> & {
+export type ConfigOverrides = Partial<Omit<PipelineConfig, "voice" | "render" | "animator" | "studio">> & {
+  studio?: Partial<StudioConfig>;
   voice?: Partial<VoiceConfig>;
   render?: Partial<RenderConfig>;
   animator?: Partial<AnimatorConfig>;
@@ -166,6 +191,12 @@ export function loadConfig(overrides: ConfigOverrides = {}): PipelineConfig {
     ...overrides.render,
   });
   const animator = AnimatorConfigSchema.parse({ ...file.animator, ...overrides.animator });
+  const studio = StudioConfigSchema.parse({
+    ...file.studio,
+    ...(process.env.STUDIO_WORKSPACE ? { workspace: process.env.STUDIO_WORKSPACE } : {}),
+    ...(process.env.STUDIO_PORT ? { port: Number(process.env.STUDIO_PORT) } : {}),
+    ...overrides.studio,
+  });
 
   return {
     runner,
@@ -183,6 +214,7 @@ export function loadConfig(overrides: ConfigOverrides = {}): PipelineConfig {
     voice,
     render,
     animator,
+    studio,
   };
 }
 

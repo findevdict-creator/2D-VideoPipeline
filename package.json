@@ -6,7 +6,8 @@
     "pipeline": "tsx packages/cli/src/cli.ts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p packages/lib",
     "test": "tsx --test tests/*.test.ts",
-    "setup:voice": "node scripts/setup-voice.mjs"
+    "setup:voice": "node scripts/setup-voice.mjs",
+    "studio": "tsx packages/cli/src/studio.ts"
   },
   "repository": {
     "type": "git",
