@@ -127,7 +127,7 @@ export async function sceneDetail(studio: Studio, sceneId: string) {
 
 /** Two versions of a scene next to each other: what each looks like, and what differs. */
 export function sceneComparison(studio: Studio, sceneId: string, a: number, b: number) {
-  if (!Number.isInteger(a) || !Number.isInteger(b)) throw new Error("Name the two versions to compare by their numbers.");
+  if (!Number.isInteger(a) || !Number.isInteger(b) || a < 1 || b < 1) throw new Error("Name the two versions to compare by their numbers.");
   const scene = getScene(studio, sceneId);
   const project = getProject(studio, scene.projectId);
   const comparison = compareVersions(studio, sceneId, a, b);

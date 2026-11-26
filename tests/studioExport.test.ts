@@ -166,7 +166,17 @@ test("two versions of a scene are compared: what was asked, and what changed in 
     assert.equal(page.status, 200);
     assert.deepEqual(page.data.versions.map((v: any) => v.version), [1, 2]);
     assert.equal(page.data.asked[0].notes, "Make the label larger");
-    assert.equal((await get(`/api/scenes/${scene.id}/compare?a=1`)).status, 400);
+    const unnamed = await get(`/api/scenes/${scene.id}/compare?a=1`);
+    assert.equal(unnamed.status, 400);
+    assert.match(unnamed.data.error, /two versions/);
+
+    // The page knows the shapes the video can be exported in, and a wrong one is refused before any work starts.
+    const snap = (await get(`/api/projects/${project.slug}`)).data;
+    assert.deepEqual(snap.exportFormats.map((f: any) => [f.format, f.width, f.height, f.asBuilt]), [["landscape", 1920, 1080, true], ["shorts", 1080, 1920, false], ["square", 1080, 1080, false]]);
+    assert.deepEqual(snap.exports, []);
+    const post = async (body: unknown) => (await fetch(`${server.url}/api/projects/${project.slug}/export`, { method: "POST", headers: { "x-studio": "1", "content-type": "application/json" }, body: JSON.stringify(body) })).status;
+    assert.equal(await post({ format: "cinema" }), 400);
+    assert.equal(await post({ format: "shorts", zoom: 9 }), 400);
 
     // Going back is refused while a run is at work on the scene, and allowed otherwise.
     const status = getScene(studio, scene.id).status;
