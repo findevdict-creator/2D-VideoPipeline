@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { PYTHON_DIR, REPO_ROOT } from "../paths.js";
 import type { PipelineConfig } from "../config.js";
 import type { TimedWord } from "./text.js";
 
@@ -46,8 +46,7 @@ export function createSpeechEngine(config: PipelineConfig): SpeechEngine {
   return config.voice.engine === "mock" ? new MockSpeechEngine() : new KokoroEngine(config);
 }
 
-const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-const SCRIPT = path.join(REPO_ROOT, "voice", "kokoro_tts.py");
+const SCRIPT = path.join(PYTHON_DIR, "kokoro", "kokoro_tts.py");
 
 /** The Python that setup:voice installed, or a configured one, or the system Python. */
 export function resolvePython(config: PipelineConfig): string {
@@ -62,7 +61,7 @@ export function resolvePython(config: PipelineConfig): string {
   return windows ? "python" : "python3";
 }
 
-/** Runs voice/kokoro_tts.py with the job on stdin. */
+/** Runs python/kokoro/kokoro_tts.py with the job on stdin. */
 export class KokoroEngine implements SpeechEngine {
   readonly kind = "kokoro";
   constructor(private readonly config: PipelineConfig) {}

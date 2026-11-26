@@ -8,7 +8,7 @@ import { bundleProduction, renderVideo, typecheckScenes } from "../render/remoti
 import { checkSceneSource } from "../render/sceneCheck.js";
 import { readJson } from "./files.js";
 import type { Stage } from "./types.js";
-import type { VideoData } from "../../remotion/lib/types.js";
+import type { VideoData } from "@pipeline/lib/types";
 
 /**
  * Have the Animator animate the scenes. With notes, only the scenes the notes name

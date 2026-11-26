@@ -2,14 +2,14 @@ import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { createTikTokStyleCaptions, type Caption } from "@remotion/captions";
-import type { CaptionPage, SceneData, VideoData } from "../../remotion/lib/types.js";
+import type { CaptionPage, SceneData, VideoData } from "@pipeline/lib/types";
 import { loadConfig } from "../config.js";
 import type { StageContext } from "../context.js";
 import type { Voiceover } from "../schemas.js";
 import { files, readJson, type Brief, type Script, type Storyboard } from "../stages/files.js";
 import { loadPronunciations, type Pronunciations, type TimedWord } from "../voice/text.js";
 
-import { REPO_ROOT } from "../agents/definitions.js";
+import { LIB_INDEX, LIB_TSCONFIG, REPO_ROOT } from "../paths.js";
 
 export { REPO_ROOT };
 
@@ -209,12 +209,12 @@ import { scenes } from "./scenes";
 registerRoot(makeRoot(data as never, scenes));
 `,
   );
-  const lib = path.join(REPO_ROOT, "remotion", "lib", "index.ts");
+  const lib = LIB_INDEX;
   await fs.writeFile(
     r.tsconfig,
     JSON.stringify(
       {
-        extends: path.join(REPO_ROOT, "remotion", "tsconfig.json"),
+        extends: LIB_TSCONFIG,
         compilerOptions: {
           // Productions can live outside the repo, so point module lookups at the repo's packages.
           paths: {

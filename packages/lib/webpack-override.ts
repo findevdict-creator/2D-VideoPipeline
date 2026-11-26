@@ -13,7 +13,7 @@ export function pipelineWebpackOverride(repoRoot: string): WebpackOverrideFn {
       ...config.resolve,
       alias: {
         ...((config.resolve?.alias as Record<string, string> | undefined) ?? {}),
-        "@pipeline/lib": path.join(repoRoot, "remotion", "lib", "index.ts"),
+        "@pipeline/lib": path.join(repoRoot, "packages", "lib", "src", "index.ts"),
       },
       modules: [path.join(repoRoot, "node_modules"), "node_modules", ...(config.resolve?.modules ?? [])],
     },

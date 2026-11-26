@@ -4,18 +4,18 @@ import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ScriptedApprover } from "../src/approval.js";
-import { loadConfig } from "../src/config.js";
-import type { StageContext } from "../src/context.js";
-import { runPipeline } from "../src/pipeline.js";
-import { Production } from "../src/production.js";
-import { MockRunner } from "../src/runners/mock.js";
-import type { Voiceover } from "../src/schemas.js";
-import { PIPELINE_STAGES } from "../src/stages/index.js";
+import { ScriptedApprover } from "../packages/core/src/approval.js";
+import { loadConfig } from "../packages/core/src/config.js";
+import type { StageContext } from "../packages/core/src/context.js";
+import { runPipeline } from "../packages/core/src/pipeline.js";
+import { Production } from "../packages/core/src/production.js";
+import { MockRunner } from "../packages/core/src/runners/mock.js";
+import type { Voiceover } from "../packages/core/src/schemas.js";
+import { PIPELINE_STAGES } from "../packages/core/src/stages/index.js";
 
-import { synthesize } from "../src/stages/voiceover.js";
-import type { SpeechJob } from "../src/voice/engine.js";
-import { applyPronunciations, findCueTiming, kokoroLanguage } from "../src/voice/text.js";
+import { synthesize } from "../packages/core/src/stages/voiceover.js";
+import type { SpeechJob } from "../packages/core/src/voice/engine.js";
+import { applyPronunciations, findCueTiming, kokoroLanguage } from "../packages/core/src/voice/text.js";
 
 /** Brief through voiceover; animation and render are tested in animation.test.ts. */
 const THROUGH_VOICEOVER = PIPELINE_STAGES.slice(0, 4);
@@ -69,7 +69,7 @@ test("only scenes whose text or settings changed are spoken again", async () => 
   script.scenes[1].narration = script.scenes[1].narration.replace("About thirty", "Around thirty");
   await fs.writeFile(scriptFile, JSON.stringify(script));
 
-  const { MockSpeechEngine } = await import("../src/voice/engine.js");
+  const { MockSpeechEngine } = await import("../packages/core/src/voice/engine.js");
   const spoke: string[] = [];
   const original = MockSpeechEngine.prototype.speak;
   MockSpeechEngine.prototype.speak = async function (this: InstanceType<typeof MockSpeechEngine>, job: SpeechJob) {

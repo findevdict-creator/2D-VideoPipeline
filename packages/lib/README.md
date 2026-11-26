@@ -24,7 +24,7 @@ export default function Scene() {
 }
 ```
 
-A complete example: [`remotion/examples/ExampleScene.tsx`](../examples/ExampleScene.tsx).
+A complete example: [`packages/lib/examples/ExampleScene.tsx`](examples/ExampleScene.tsx).
 
 ## Rules
 

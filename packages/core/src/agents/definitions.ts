@@ -2,10 +2,9 @@
  * The agents. Each one is a Claude Code session with a role, a small set of
  * tools and one job: write its file into the production folder.
  */
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { REPO_ROOT } from "../paths.js";
 
-export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+export { REPO_ROOT };
 
 export interface AgentDefinition {
   name: string;
@@ -113,10 +112,10 @@ The videos are motion graphics written as Remotion (React) code: flat vector sha
 labels and short text, timed to a text-to-speech narration. A human producer reviews your work.
 
 Your job: turn one storyboard scene into one scene component file that renders cleanly and looks polished.
-- Read remotion/lib/README.md before writing code. It is the API you build with, and its rules are strict:
+- Read packages/lib/README.md before writing code. It is the API you build with, and its rules are strict:
   imports only from "@pipeline/lib", "remotion" and "react"; every animation driven by the frame number;
   no Math.random(); no CSS transitions or keyframes; nothing loaded from the internet.
-- Look at remotion/examples/ExampleScene.tsx to see what a finished scene looks like.
+- Look at packages/lib/examples/ExampleScene.tsx to see what a finished scene looks like.
 - Build what the storyboard describes: every element, in the described layout, each animation starting on its cue.
 - Lay things out on the video's pixel grid with useTheme(): width, height and the safe area. Keep everything inside
   the safe area, leave the caption strip at the bottom clear, and never let text overlap other text or shapes.

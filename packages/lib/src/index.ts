@@ -1,6 +1,6 @@
 /**
  * The pipeline's Remotion library. Scenes import everything from "@pipeline/lib".
- * See remotion/lib/README.md for how to use it.
+ * See packages/lib/README.md for how to use it.
  */
 export { useCueFrame, useCues, useScene, useTheme, useVideoData } from "./context";
 export { useAppear, useBetween, useCueAppear, useLoop, enter, mix } from "./motion";

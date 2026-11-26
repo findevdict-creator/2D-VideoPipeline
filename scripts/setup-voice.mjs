@@ -74,7 +74,7 @@ if (process.platform === "linux") {
   const cpu = spawnSync(venvPython, args, { stdio: "inherit", cwd: root });
   if (cpu.status !== 0) console.log("CPU-only PyTorch was not available; installing the default build instead.");
 }
-run(venvPython, ["-m", "pip", "install", "-r", path.join(root, "voice", "requirements.txt")]);
+run(venvPython, ["-m", "pip", "install", "-r", path.join(root, "python", "kokoro", "requirements.txt")]);
 
 console.log("\nMaking a test clip (the first run downloads the Kokoro model)...");
 const outDir = path.join(root, "voice-auditions");
@@ -95,7 +95,7 @@ const job = {
     },
   ],
 };
-const test = spawnSync(venvPython, [path.join(root, "voice", "kokoro_tts.py")], {
+const test = spawnSync(venvPython, [path.join(root, "python", "kokoro", "kokoro_tts.py")], {
   input: JSON.stringify(job),
   encoding: "utf8",
   stdio: ["pipe", "pipe", "inherit"],

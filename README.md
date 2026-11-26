@@ -31,7 +31,7 @@ Every video gets its own **production folder**. Each agent reads the files writt
 
 The pipeline code runs the stages in a fixed order and stops at every approval. Agents never move on by themselves. Approved stages are saved, so you can stop at any point and resume later, and a failed agent run resumes from the stage it was in.
 
-Every file is validated against a schema in [`src/schemas.ts`](src/schemas.ts). If an agent writes an invalid file, it gets the errors and is asked to fix it. The storyboard is also checked against the script: the scene ids must match, and every animation cue must be a phrase the narrator actually says, so the visuals can be timed to the voice in a later phase.
+Every file is validated against a schema in [`packages/core/src/schemas.ts`](packages/core/src/schemas.ts). If an agent writes an invalid file, it gets the errors and is asked to fix it. The storyboard is also checked against the script: the scene ids must match, and every animation cue must be a phrase the narrator actually says, so the visuals can be timed to the voice in a later phase.
 
 ## Voiceover
 
@@ -67,7 +67,7 @@ The file also holds `runner`, `model` and `maxDirectorRounds`. Environment varia
 
 The video is made with [Remotion](https://www.remotion.dev): every scene is a small React component that draws flat 2D motion graphics (shapes, icons, diagrams, labels) frame by frame. The pipeline puts the scenes in order, plays each scene's narration, applies the storyboard's entrance transitions and camera moves, and burns in captions.
 
-**The shared library** in [`remotion/lib/`](remotion/lib/) gives the Animator building blocks so every scene starts from tested parts: the storyboard's palette and font, 24 flat icons, self-drawing arrows, paths and rings, labels, titles, pulse rings, and timing helpers such as `useCueAppear("pin")`, which starts an animation the moment the narrator says that element's cue phrase. [`remotion/lib/README.md`](remotion/lib/README.md) is the Animator's manual. Remotion's own [agent skills](https://www.remotion.dev/docs/ai/skills) are installed in `.claude/skills/`, and the Animator loads them when it needs more than the library.
+**The shared library** in [`packages/lib/`](packages/lib/) gives the Animator building blocks so every scene starts from tested parts: the storyboard's palette and font, 24 flat icons, self-drawing arrows, paths and rings, labels, titles, pulse rings, and timing helpers such as `useCueAppear("pin")`, which starts an animation the moment the narrator says that element's cue phrase. [`packages/lib/README.md`](packages/lib/README.md) is the Animator's manual. Remotion's own [agent skills](https://www.remotion.dev/docs/ai/skills) are installed in `.claude/skills/`, and the Animator loads them when it needs more than the library.
 
 **Animation stage.** For each scene, the Animator writes `scenes/sNN.tsx`. Then the pipeline checks it, without any AI:
 
@@ -214,14 +214,14 @@ REMOTION_BROWSER_EXECUTABLE=/path/to/chrome npm test
 
 Code map:
 
-- `src/agents/definitions.ts`: each agent's role, rules and tools
-- `src/stages/`: what each stage asks its agents to do, how it is summarised for review, and the Director review loop
-- `src/pipeline.ts`: runs stages in order with approvals, revisions, and pause and resume
-- `src/runners/`: the three ways to run an agent
-- `src/schemas.ts`: the file formats shared between agents
-- `src/voice/` and `voice/kokoro_tts.py`: respellings, cue timing, and the bridge to Kokoro
-- `remotion/lib/`: the shared Remotion library and the Animator's manual
-- `src/render/`: builds each production's Remotion project, checks scenes, runs the Animator's check-and-fix loop, and renders
+- `packages/core/src/agents/definitions.ts`: each agent's role, rules and tools
+- `packages/core/src/stages/`: what each stage asks its agents to do, how it is summarised for review, and the Director review loop
+- `packages/core/src/pipeline.ts`: runs stages in order with approvals, revisions, and pause and resume
+- `packages/core/src/runners/`: the three ways to run an agent
+- `packages/core/src/schemas.ts`: the file formats shared between agents
+- `packages/core/src/voice/` and `python/kokoro/kokoro_tts.py`: respellings, cue timing, and the bridge to Kokoro
+- `packages/lib/`: the shared Remotion library and the Animator's manual
+- `packages/core/src/render/`: builds each production's Remotion project, checks scenes, runs the Animator's check-and-fix loop, and renders
 
 ## Roadmap
 

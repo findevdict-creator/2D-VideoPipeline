@@ -11,7 +11,7 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "noEmit": true,
-    "paths": { "@pipeline/lib": ["./lib/index.ts"] }
+    "paths": { "@pipeline/lib": ["./src/index.ts"] }
   },
-  "include": ["lib", "examples"]
+  "include": ["src", "examples"]
 }

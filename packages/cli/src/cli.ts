@@ -2,15 +2,15 @@ import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
-import { ScriptedApprover, TerminalApprover, type Approver } from "./approval.js";
-import { loadConfig, type RunnerKind } from "./config.js";
-import type { StageContext } from "./context.js";
-import { runPipeline } from "./pipeline.js";
-import { Production } from "./production.js";
-import { createRunner } from "./runners/index.js";
-import { REPO_ROOT, renderPaths, writeProject } from "./render/project.js";
-import { PIPELINE_STAGES } from "./stages/index.js";
-import { auditionVoices } from "./voice/audition.js";
+import { ScriptedApprover, TerminalApprover, type Approver } from "@studio/core/approval";
+import { loadConfig, type RunnerKind } from "@studio/core/config";
+import type { StageContext } from "@studio/core/context";
+import { runPipeline } from "@studio/core/pipeline";
+import { Production } from "@studio/core/production";
+import { createRunner } from "@studio/core/runners/index";
+import { REPO_ROOT, renderPaths, writeProject } from "@studio/core/render/project";
+import { PIPELINE_STAGES } from "@studio/core/stages/index";
+import { auditionVoices } from "@studio/core/voice/audition";
 
 const HELP = `2D explainer video pipeline
 

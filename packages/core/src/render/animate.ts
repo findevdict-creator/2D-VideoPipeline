@@ -3,8 +3,9 @@ import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
-import type { SceneData, VideoData } from "../../remotion/lib/types.js";
-import { ANIMATOR, REPO_ROOT } from "../agents/definitions.js";
+import type { SceneData, VideoData } from "@pipeline/lib/types";
+import { ANIMATOR } from "../agents/definitions.js";
+import { LIB_EXAMPLE, LIB_README } from "../paths.js";
 import { FALLBACK_SCENE } from "../agents/fallbackScene.js";
 import { runAgentForFile, validateJsonFile, type Validation } from "../agents/runAgent.js";
 import type { StageContext } from "../context.js";
@@ -293,8 +294,8 @@ function shortError(err: unknown, max = 1500) {
 
 // ---------- The Animator's tasks ----------
 
-const README = path.join(REPO_ROOT, "remotion", "lib", "README.md");
-const EXAMPLE = path.join(REPO_ROOT, "remotion", "examples", "ExampleScene.tsx");
+const README = LIB_README;
+const EXAMPLE = LIB_EXAMPLE;
 
 function sceneBrief(data: VideoData, scene: SceneData) {
   const { words, audio, startFrame, ...rest } = scene;

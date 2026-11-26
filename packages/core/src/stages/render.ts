@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { serializeSrt, type Caption } from "@remotion/captions";
-import type { VideoData } from "../../remotion/lib/types.js";
+import type { VideoData } from "@pipeline/lib/types";
 import type { StageContext } from "../context.js";
 import { slugify } from "../production.js";
 import { reloadRenderSettings, renderPaths, writeProject } from "../render/project.js";

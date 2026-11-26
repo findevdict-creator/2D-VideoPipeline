@@ -3,8 +3,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { bundle } from "@remotion/bundler";
 import { renderMedia, renderStill, selectComposition } from "@remotion/renderer";
-import { pipelineWebpackOverride } from "../../remotion/webpack-override.js";
-import type { VideoData } from "../../remotion/lib/types.js";
+import { pipelineWebpackOverride } from "@pipeline/lib/webpack-override";
+import type { VideoData } from "@pipeline/lib/types";
 import type { StageContext } from "../context.js";
 import { REPO_ROOT, renderPaths } from "./project.js";
 
