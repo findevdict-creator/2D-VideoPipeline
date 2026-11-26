@@ -7,7 +7,9 @@ import { listChapters } from "@studio/core/studio/store/chapters";
 import { listDocuments, readDocument } from "@studio/core/studio/store/documents";
 import { getProject, listProjects, projectPaths, type Project } from "@studio/core/studio/store/projects";
 import { listRuns } from "@studio/core/studio/store/runs";
-import { getScene, listReviews, listScenes, listVersions, readSource, sceneLabel, sceneNarration, versionPaths, type Scene, type SceneVersion } from "@studio/core/studio/store/scenes";
+import { getScene, listReviews, listScenes, listVersions, readSource, sceneLabel, sceneNarration, versionByNumber, versionPaths, type Scene, type SceneVersion } from "@studio/core/studio/store/scenes";
+import { compareVersions } from "@studio/core/studio/scenes/compare";
+import { EXPORT_FORMATS, exportSize, listExports, type ExportFormat } from "@studio/core/studio/export";
 import { characterInfo, listShared, listSharedRequests, readShared, sharedVersions } from "@studio/core/studio/store/shared";
 import { getVoiceTrack } from "@studio/core/studio/voice";
 import type { ModelInfo } from "@studio/core/studio/assets/gltf";
@@ -123,6 +125,18 @@ export async function sceneDetail(studio: Studio, sceneId: string) {
   };
 }
 
+/** Two versions of a scene next to each other: what each looks like, and what differs. */
+export function sceneComparison(studio: Studio, sceneId: string, a: number, b: number) {
+  if (!Number.isInteger(a) || !Number.isInteger(b) || a < 1 || b < 1) throw new Error("Name the two versions to compare by their numbers.");
+  const scene = getScene(studio, sceneId);
+  const project = getProject(studio, scene.projectId);
+  const comparison = compareVersions(studio, sceneId, a, b);
+  return {
+    ...comparison,
+    versions: [versionView(studio, project, versionByNumber(studio, sceneId, comparison.before)), versionView(studio, project, versionByNumber(studio, sceneId, comparison.after))],
+  };
+}
+
 export function projectList(studio: Studio) {
   return listProjects(studio).map((p) => {
     const scenes = listScenes(studio, p.id);
@@ -191,5 +205,21 @@ export function projectSnapshot(studio: Studio, orchestrator: Orchestrator, idOr
     runs: listRuns(studio, project.id, { limit: 60 }),
     jobs: studio.db.all("SELECT id, kind, target_id AS targetId, status, progress, error, queued_at AS queuedAt FROM jobs WHERE project_id = ? ORDER BY queued_at DESC, id DESC LIMIT 30", [project.id]),
     renders: renders.map((r) => ({ ...r, url: fileUrl(studio, project, r.path), srtUrl: fileUrl(studio, project, r.srtPath) })),
+    /** The shapes the video can be exported in, each with the frame it would get. */
+    exportFormats: (Object.keys(EXPORT_FORMATS) as ExportFormat[]).map((format) => ({
+      format,
+      ...EXPORT_FORMATS[format],
+      ...exportSize(project, format),
+      /** True for the shape the scenes were built in, which needs no extra rendering. */
+      asBuilt: EXPORT_FORMATS[format].aspect === project.aspect,
+    })),
+    exports: listExports(studio, project.id).map((e) => ({
+      ...e,
+      folderPath: projectPaths(studio, project).abs(e.folder),
+      url: fileUrl(studio, project, e.files.video),
+      subtitlesUrl: fileUrl(studio, project, e.files.subtitles),
+      thumbnailUrl: fileUrl(studio, project, e.files.thumbnail),
+      descriptionUrl: fileUrl(studio, project, e.files.description),
+    })),
   };
 }

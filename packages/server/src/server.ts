@@ -22,7 +22,8 @@ import { getRun, readRunLog } from "@studio/core/studio/store/runs";
 import { getScene, rollbackScene, setTheme, updatePlan } from "@studio/core/studio/store/scenes";
 import { closeSharedRequest } from "@studio/core/studio/store/shared";
 import { Orchestrator } from "@studio/core/studio/workflow";
-import { assetKeyframes, projectList, projectSnapshot, sceneDetail } from "./snapshot.js";
+import { exportFormat, MAX_ZOOM } from "@studio/core/studio/export";
+import { assetKeyframes, projectList, projectSnapshot, sceneComparison, sceneDetail } from "./snapshot.js";
 
 const WEB_DIR = path.join(REPO_ROOT, "packages", "web");
 const MAX_JSON = 2 * 1024 * 1024;
@@ -103,6 +104,18 @@ export async function startServer(studio: Studio, opts: { port?: number; orchest
     return { started: true };
   });
 
+  route("POST", "/api/projects/:project/export", ({ params, body }) => {
+    const project = getProject(studio, params.project!);
+    const format = exportFormat(String(body?.format ?? "landscape"));
+    const zoom = body?.zoom === undefined ? 1 : Number(body.zoom);
+    if (!(zoom >= 1 && zoom <= MAX_ZOOM)) throw new Error(`The zoom is a number from 1 to ${MAX_ZOOM}.`);
+    const chapterId = body?.chapterId ? getChapter(studio, String(body.chapterId)).id : undefined;
+    background(o.export(project.id, { format, zoom, chapterId }).catch((err) => {
+      studio.emit("notice", { projectId: project.id, data: { level: "error", message: (err as Error).message } });
+    }));
+    return { started: true };
+  });
+
   route("POST", "/api/projects/:project/stale/rebuild", ({ params }) => ({ scenes: o.rebuildStale(getProject(studio, params.project!).id).length }));
   route("POST", "/api/usage/resume", () => {
     o.resumeNow();
@@ -155,6 +168,7 @@ export async function startServer(studio: Studio, opts: { port?: number; orchest
     background(o.renderScene(params.scene!));
     return { started: true };
   });
+  route("GET", "/api/scenes/:scene/compare", ({ params, url }) => sceneComparison(studio, params.scene!, Number(url.searchParams.get("a")), Number(url.searchParams.get("b"))));
   route("POST", "/api/scenes/:scene/rollback", ({ params, body }) => ({ status: rollbackScene(studio, params.scene!, Number(body.version)).status }));
   route("POST", "/api/shared-requests/:id/close", ({ params, body }) => {
     closeSharedRequest(studio, params.id!, body?.status === "done" ? "done" : "declined");

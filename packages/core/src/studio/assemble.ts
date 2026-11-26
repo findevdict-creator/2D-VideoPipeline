@@ -10,7 +10,7 @@ import { renderSceneClip } from "./scenes/render.js";
 import { buildSoundtrack, mixArgs } from "./sound/mix.js";
 import type { Studio } from "./studio.js";
 import { getChapter } from "./store/chapters.js";
-import type { Clip, ClipQuality } from "./store/clips.js";
+import type { ClipQuality } from "./store/clips.js";
 import { fromRow, fromRows } from "./store/mapping.js";
 import { getProject, projectPaths } from "./store/projects.js";
 import { getVersion, listScenes, sceneLabel, type Scene } from "./store/scenes.js";
@@ -60,12 +60,33 @@ export function listRenders(studio: Studio, projectId: string): Render[] {
   return fromRows<Render>(studio.db.all("SELECT * FROM renders WHERE project_id = ? ORDER BY created_at DESC", [projectId]));
 }
 
+/** One scene's place in a video being joined. */
+export interface ClipPart {
+  scene: Scene;
+  versionId: string;
+  /** Full path of the clip. */
+  file: string;
+  frames: number;
+}
+
+export interface GatherOptions extends AssembleOptions {
+  /** Where a scene's clip comes from. Without it, the scene's own clip in the asked quality. */
+  clipFor?: (scene: Scene, versionId: string) => Promise<{ file: string; frames: number; cached: boolean }>;
+}
+
+export interface Gathered {
+  parts: ClipPart[];
+  skipped: AssembleResult["skipped"];
+  rendered: number;
+  reused: number;
+}
+
 /**
- * Join scene clips into one video with narration, music, sound effects and a subtitle file. Clips are
- * joined without re-encoding, so this takes seconds once the clips exist; only scenes
- * whose clip is missing or out of date are rendered.
+ * Decide which version of each scene goes into a video and make sure each has its clip.
+ * Clips that exist are reused as they are; the missing ones are rendered a few at a time,
+ * which is what makes a long video's final render bearable.
  */
-export async function assemble(studio: Studio, projectId: string, opts: AssembleOptions = {}): Promise<AssembleResult> {
+export async function gatherClips(studio: Studio, projectId: string, opts: GatherOptions = {}): Promise<Gathered> {
   const project = getProject(studio, projectId);
   const quality = opts.quality ?? "preview";
   const approvedOnly = opts.approvedOnly ?? quality === "final";
@@ -93,10 +114,15 @@ export async function assemble(studio: Studio, projectId: string, opts: Assemble
   // One recording pass for every scene that still needs narration, instead of one per scene.
   await ensureVoice(studio, chosen.filter((c) => c.versionId === c.scene.currentVersionId).map((c) => c.scene.id), log);
 
+  const clipFor =
+    opts.clipFor ??
+    (async (scene: Scene, versionId: string) => {
+      const result = await renderSceneClip(studio, scene.id, quality, () => {}, log, versionId);
+      return { file: p.abs(result.clip.path), frames: result.clip.durationFrames, cached: result.cached };
+    });
   let rendered = 0;
   let reused = 0;
-  // Clips that exist are reused as they are; the missing ones are rendered a few at a time, which is what makes a long video's final render bearable.
-  const slots: ({ scene: Scene; versionId: string; clip: Clip } | undefined)[] = new Array(chosen.length);
+  const slots: (ClipPart | undefined)[] = new Array(chosen.length);
   let next = 0;
   let finished = 0;
   let failure: Error | undefined;
@@ -106,13 +132,13 @@ export async function assemble(studio: Studio, projectId: string, opts: Assemble
       const item = chosen[i]!;
       const label = `${sceneLabel(studio, item.scene)} ${item.scene.title}`;
       try {
-        const result = await renderSceneClip(studio, item.scene.id, quality, () => {}, log, item.versionId);
+        const result = await clipFor(item.scene, item.versionId);
         if (result.cached) reused++;
         else {
           rendered++;
           log(`Rendered ${label}`);
         }
-        slots[i] = { ...item, clip: result.clip };
+        slots[i] = { ...item, file: result.file, frames: result.frames };
       } catch (err) {
         if (quality === "final") failure ??= new Error(`Scene ${label} could not be rendered: ${(err as Error).message}`);
         else skip(item.scene, `could not be rendered: ${(err as Error).message.split("\n")[0]}`);
@@ -126,6 +152,24 @@ export async function assemble(studio: Studio, projectId: string, opts: Assemble
   const parts = slots.filter((s) => s !== undefined);
   if (!parts.length) throw new Error(`No scene could be included:\n${skipped.map((s) => `  ${s.label} ${s.title}: ${s.reason}`).join("\n")}`);
   opts.onProgress?.(chosen.length, chosen.length, "Joining clips");
+  return { parts, skipped, rendered, reused };
+}
+
+export interface Joined {
+  sceneVersions: Render["sceneVersions"];
+  durationSec: number;
+  /** The subtitle file written next to the video. */
+  srt: string;
+}
+
+/**
+ * Join clips into `output` without re-encoding the picture, with the narration, the music
+ * dipped under it and the scenes' sound effects mixed in one pass, and write the
+ * subtitles next to it.
+ */
+export async function joinClips(studio: Studio, projectId: string, parts: ClipPart[], output: string, log: (message: string) => void = () => {}): Promise<Joined> {
+  const project = getProject(studio, projectId);
+  const p = projectPaths(studio, project);
 
   // Lay everything out on the frame grid.
   const pronunciations = await loadPronunciations(studio.config);
@@ -135,33 +179,25 @@ export async function assemble(studio: Studio, projectId: string, opts: Assemble
   for (const part of parts) {
     const version = getVersion(studio, part.versionId);
     const track = version.voiceTrackId ? getVoiceTrack(studio, version.voiceTrackId) : undefined;
-    const frames = part.clip.durationFrames;
     if (track) {
       const ms = (frame: number) => ((start + frame) / project.fps) * 1000;
       for (const page of captionPages(studio, track, project.fps, pronunciations)) {
         captions.push(page.tokens.map((t) => ({ text: t.text, startMs: ms(t.startFrame), endMs: ms(t.endFrame), timestampMs: null, confidence: null })));
       }
     }
-    sceneVersions.push({ sceneId: part.scene.id, versionId: version.id, version: version.version, startFrame: start, frames });
-    start += frames;
+    sceneVersions.push({ sceneId: part.scene.id, versionId: version.id, version: version.version, startFrame: start, frames: part.frames });
+    start += part.frames;
   }
-  const totalFrames = start;
-  const durationSec = totalFrames / project.fps;
+  const durationSec = start / project.fps;
 
   const work = path.join(p.work, "assembly", newId("a"));
   fs.mkdirSync(work, { recursive: true });
   try {
     const list = path.join(work, "clips.txt");
-    fs.writeFileSync(list, parts.map((part) => `file '${p.abs(part.clip.path).split(path.sep).join("/").replace(/'/g, "'\\''")}'`).join("\n") + "\n");
+    fs.writeFileSync(list, parts.map((part) => `file '${part.file.split(path.sep).join("/").replace(/'/g, "'\\''")}'`).join("\n") + "\n");
     const sound = await buildSoundtrack(studio, project, sceneVersions, work, log);
+    fs.mkdirSync(path.dirname(output), { recursive: true });
 
-    const scope = opts.chapterId ? `chapter-${getChapter(studio, opts.chapterId).position}` : "video";
-    const n = (studio.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM renders WHERE project_id = ?", [project.id])?.n ?? 0) + 1;
-    const name = `${slugify(project.title, 8)}-${scope}-${quality}-${String(n).padStart(3, "0")}`;
-    fs.mkdirSync(p.renders, { recursive: true });
-    const output = path.join(p.renders, `${name}.mp4`);
-
-    // Narration, music dipped under it, and the scenes' sound effects, mixed in one pass.
     const mix = mixArgs(sound, 1);
     const args = ["-f", "concat", "-safe", "0", "-i", list, ...mix.inputs];
     if (mix.filter) args.push("-filter_complex", mix.filter);
@@ -169,19 +205,39 @@ export async function assemble(studio: Studio, projectId: string, opts: Assemble
     args.push("-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-t", durationSec.toFixed(3), "-movflags", "+faststart", output);
     await ffmpeg(args);
 
-    const srt = path.join(p.renders, `${name}.srt`);
+    const srt = output.replace(/\.mp4$/, "") + ".srt";
     fs.writeFileSync(srt, serializeSrt({ lines: captions }));
-
-    const id = newId("rn");
-    studio.db.run(
-      "INSERT INTO renders (id, project_id, kind, scope, path, srt_path, scene_versions_json, duration_sec, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [id, project.id, quality, opts.chapterId ?? "project", p.rel(output), p.rel(srt), JSON.stringify(sceneVersions), durationSec, nowIso()],
-    );
-    studio.emit("render.created", { projectId: project.id, targetId: id });
-    const render = fromRow<Render>(studio.db.get("SELECT * FROM renders WHERE id = ?", [id]))!;
-    log(`Assembled ${parts.length} scene(s), ${durationSec.toFixed(1)}s: ${output}`);
-    return { render, file: output, skipped, rendered, reused };
+    return { sceneVersions, durationSec, srt };
   } finally {
     fs.rmSync(work, { recursive: true, force: true });
   }
+}
+
+/**
+ * Join scene clips into one video with narration, music, sound effects and a subtitle file. Clips are
+ * joined without re-encoding, so this takes seconds once the clips exist; only scenes
+ * whose clip is missing or out of date are rendered.
+ */
+export async function assemble(studio: Studio, projectId: string, opts: AssembleOptions = {}): Promise<AssembleResult> {
+  const project = getProject(studio, projectId);
+  const quality = opts.quality ?? "preview";
+  const log = opts.log ?? (() => {});
+  const p = projectPaths(studio, project);
+  const { parts, skipped, rendered, reused } = await gatherClips(studio, projectId, opts);
+
+  const scope = opts.chapterId ? `chapter-${getChapter(studio, opts.chapterId).position}` : "video";
+  const n = (studio.db.get<{ n: number }>("SELECT COUNT(*) AS n FROM renders WHERE project_id = ?", [project.id])?.n ?? 0) + 1;
+  const name = `${slugify(project.title, 8)}-${scope}-${quality}-${String(n).padStart(3, "0")}`;
+  const output = path.join(p.renders, `${name}.mp4`);
+  const { sceneVersions, durationSec, srt } = await joinClips(studio, projectId, parts, output, log);
+
+  const id = newId("rn");
+  studio.db.run(
+    "INSERT INTO renders (id, project_id, kind, scope, path, srt_path, scene_versions_json, duration_sec, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [id, project.id, quality, opts.chapterId ?? "project", p.rel(output), p.rel(srt), JSON.stringify(sceneVersions), durationSec, nowIso()],
+  );
+  studio.emit("render.created", { projectId: project.id, targetId: id });
+  const render = fromRow<Render>(studio.db.get("SELECT * FROM renders WHERE id = ?", [id]))!;
+  log(`Assembled ${parts.length} scene(s), ${durationSec.toFixed(1)}s: ${output}`);
+  return { render, file: output, skipped, rendered, reused };
 }

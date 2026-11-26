@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { api, type Keyframes, type SceneDetail, type Snapshot } from "./api";
 import { RunLog } from "./RunLog";
+import { VersionCompare } from "./VersionCompare";
 import { ago, Chip, duration, NotesBox, RUN_STATUS, SCENE_STATUS, TYPE_NAME, useAction } from "./ui";
 
 /** One scene, opened: watch it, approve it or say what to change, and see how it got here. */
@@ -9,6 +10,7 @@ export function SceneDrawer({ sceneId, snapshot, refreshKey, onClose }: { sceneI
   const [busy, act] = useAction();
   const [asking, setAsking] = useState(false);
   const [shown, setShown] = useState<number | null>(null);
+  const [comparing, setComparing] = useState(false);
 
   const load = useCallback(() => act(async () => setScene(await api.scene(sceneId))), [act, sceneId]);
   useEffect(() => {
@@ -31,6 +33,7 @@ export function SceneDrawer({ sceneId, snapshot, refreshKey, onClose }: { sceneI
 
   return (
     <aside className="drawer" aria-label={`Scene ${scene.label}`}>
+      {comparing && scene.versions.length > 1 && <VersionCompare scene={scene} working={working} onClose={() => setComparing(false)} onChanged={load} />}
       <div className="drawer-head">
         <div>
           <div className="muted small">
@@ -212,7 +215,12 @@ export function SceneDrawer({ sceneId, snapshot, refreshKey, onClose }: { sceneI
 
         {scene.versions.length > 1 && (
           <>
-            <h4>Versions</h4>
+            <h4>
+              Versions{" "}
+              <button className="link" onClick={() => setComparing(true)}>
+                Compare two side by side
+              </button>
+            </h4>
             <ul className="history">
               {scene.versions.map((v) => (
                 <li key={v.id}>

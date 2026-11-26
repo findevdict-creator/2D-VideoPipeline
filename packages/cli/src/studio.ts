@@ -4,10 +4,12 @@ import { loadConfig, type RunnerKind } from "@studio/core/config";
 import { importProduction } from "@studio/core/studio/importProduction";
 import { Studio } from "@studio/core/studio/studio";
 import { listChapters } from "@studio/core/studio/store/chapters";
-import { createProject, getProject, listProjects, updateProject } from "@studio/core/studio/store/projects";
+import { createProject, getProject, listProjects, projectPaths, updateProject } from "@studio/core/studio/store/projects";
 import { listRuns, readRunLog } from "@studio/core/studio/store/runs";
 import { Orchestrator } from "@studio/core/studio/workflow";
-import { findScene, getScene, listScenes, sceneLabel, setTheme } from "@studio/core/studio/store/scenes";
+import { findScene, getScene, listReviews, listScenes, listVersions, rollbackScene, sceneLabel, setTheme } from "@studio/core/studio/store/scenes";
+import { compareVersions } from "@studio/core/studio/scenes/compare";
+import { EXPORT_FORMATS, exportFormat, exportVideo, listExports } from "@studio/core/studio/export";
 import { ensureVoice } from "@studio/core/studio/voice";
 import { REFERENCE_ROLES } from "@studio/core/studio/model/asset";
 import type { ModelInfo } from "@studio/core/studio/assets/gltf";
@@ -43,6 +45,11 @@ Usage:
   npm run studio -- stills <project> <scene>         render still frames of a scene for a quick look
   npm run studio -- render <project> [scene...]      render scene clips (all scenes when none is named)
   npm run studio -- assemble <project>               join the scene clips into one video (--chapter <number> for one chapter)
+  npm run studio -- versions <project> <scene>       list a scene's versions
+  npm run studio -- compare <project> <scene> <version> <version>   what differs between two versions of a scene
+  npm run studio -- rollback <project> <scene> <version>            make an earlier version the current one again; its clip is reused
+  npm run studio -- export <project>                 export the approved video as a package (--format landscape|shorts|square, --chapter, --zoom)
+  npm run studio -- exports <project>                list what was exported
 
 A scene is named by its label, such as 1.3, or by its id.
 
@@ -59,6 +66,8 @@ Options:
   --volume <0 to 1>                      how loud the music is under the voice (default 0.12)
   --pause-volume <0 to 1>                how loud the music is where nobody speaks (default 0.4)
   --steady                               keep the music at one level instead of dipping it under the voice
+  --format <landscape|shorts|square>     the shape to export: 16:9, 9:16 for Shorts and Reels, or 1:1 (default: the shape the video was built in)
+  --zoom <1 to 2>                        for a taller shape: draw the picture larger and crop its sides (default 1, the whole picture)
   --notes <text>                         what should change, for start and revise
   -h, --help
 `;
@@ -85,6 +94,8 @@ async function main() {
       volume: { type: "string" },
       "pause-volume": { type: "string" },
       steady: { type: "boolean", default: false },
+      format: { type: "string" },
+      zoom: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -107,7 +118,7 @@ async function run(
   studio: Studio,
   command: string,
   rest: string[],
-  flags: { final: boolean; chapter?: string; label?: string; reference?: string; note?: string; minutes?: string; seconds?: string; title?: string; notes?: string; at?: string; volume?: string; "pause-volume"?: string; steady?: boolean },
+  flags: { final: boolean; chapter?: string; label?: string; reference?: string; note?: string; minutes?: string; seconds?: string; title?: string; notes?: string; at?: string; volume?: string; "pause-volume"?: string; steady?: boolean; format?: string; zoom?: string },
 ) {
   const log = (message: string) => console.log(message);
   const quality = flags.final ? "final" : "preview";
@@ -301,8 +312,70 @@ async function run(
     for (const s of result.skipped) console.log(`Left out ${s.label} ${s.title}: ${s.reason}`);
     return;
   }
+  if (command === "versions") {
+    const project = getProject(studio, required(rest[0], "project"));
+    const scene = findScene(studio, project.id, required(rest[1], "scene"));
+    const asked = new Map(listReviews(studio, "scene", scene.id).filter((r) => r.decision === "revise").map((r) => [r.targetVersion, r.notes]));
+    console.log(`${sceneLabel(studio, scene)} ${scene.title}`);
+    for (const v of listVersions(studio, scene.id)) {
+      const marks = [v.id === scene.currentVersionId ? "current" : "", v.id === scene.approvedVersionId ? "approved" : ""].filter(Boolean).join(", ");
+      console.log(`  v${v.version}  ${v.createdAt.slice(0, 16).replace("T", " ")}  ${marks.padEnd(18)} ${v.summary?.split("\n")[0] ?? ""}`);
+      if (asked.has(v.version)) console.log(`      then asked: ${asked.get(v.version)}`);
+    }
+    return;
+  }
+  if (command === "compare") {
+    const project = getProject(studio, required(rest[0], "project"));
+    const scene = findScene(studio, project.id, required(rest[1], "scene"));
+    const c = compareVersions(studio, scene.id, versionNumber(rest[2]), versionNumber(rest[3]));
+    console.log(`${sceneLabel(studio, scene)} ${scene.title}: version ${c.before} and version ${c.after}`);
+    for (const a of c.asked) console.log(`Asked after version ${a.version}: ${a.notes}`);
+    if (!c.changes.length) console.log("The two versions are the same.");
+    for (const change of c.changes) console.log(`\n${change.what}\n  version ${c.before}: ${change.before}\n  version ${c.after}: ${change.after}`);
+    if (c.narration.some((part) => part.op !== "same")) {
+      console.log(`\nNarration, word by word ([-taken out-] {+put in+}):\n  ${c.narration.map((part) => (part.op === "same" ? part.text : part.op === "removed" ? `[-${part.text.trim()}-] ` : `{+${part.text.trim()}+} `)).join("")}`);
+    }
+    if (c.code && (c.code.added || c.code.removed)) {
+      console.log("\nScene file:");
+      for (const part of c.code.parts) {
+        if (part.op !== "same") for (const line of part.text.split("\n")) console.log(`  ${part.op === "added" ? "+" : "-"} ${line}`);
+      }
+    }
+    return;
+  }
+  if (command === "rollback") {
+    const project = getProject(studio, required(rest[0], "project"));
+    const scene = findScene(studio, project.id, required(rest[1], "scene"));
+    const back = rollbackScene(studio, scene.id, versionNumber(rest[2]));
+    console.log(`${sceneLabel(studio, back)} ${back.title} is on version ${versionNumber(rest[2])} again (${back.status}). Its clip is reused; nothing is rendered again.`);
+    return;
+  }
+  if (command === "export") {
+    const project = getProject(studio, required(rest[0], "project"));
+    const chapter = flags.chapter ? chapterByNumber(studio, project.id, flags.chapter) : undefined;
+    const zoom = flags.zoom === undefined ? undefined : Number(flags.zoom);
+    const result = await exportVideo(studio, project.id, { format: flags.format ? exportFormat(flags.format) : undefined, chapterId: chapter?.id, zoom, concurrency: studio.config.studio.lanes.renders, log });
+    const e = result.export;
+    console.log(`${result.rendered} clip(s) rendered, ${result.reused} reused. ${EXPORT_FORMATS[e.format].name}, ${e.width} by ${e.height}, ${e.durationSec.toFixed(1)}s.`);
+    console.log(`Package: ${result.folder}`);
+    for (const note of e.notes) console.log(`Note: ${note}`);
+    return;
+  }
+  if (command === "exports") {
+    const project = getProject(studio, required(rest[0], "project"));
+    const all = listExports(studio, project.id);
+    if (!all.length) console.log("Nothing exported yet.");
+    for (const e of all) console.log(`${e.createdAt.slice(0, 16).replace("T", " ")}  ${e.format.padEnd(10)} ${`${e.width}x${e.height}`.padEnd(10)} ${e.durationSec.toFixed(1).padStart(7)}s  ${projectPaths(studio, project).abs(e.folder)}`);
+    return;
+  }
   console.log(HELP);
   process.exitCode = 1;
+}
+
+function versionNumber(value: string | undefined): number {
+  const n = Number(String(value ?? "").replace(/^v/i, ""));
+  if (!Number.isInteger(n) || n < 1) throw new Error('Name a version by its number, such as 2. "versions <project> <scene>" lists them.');
+  return n;
 }
 
 /** Start the GUI server and keep it running until the terminal is closed. */

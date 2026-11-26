@@ -1,9 +1,15 @@
 import React from "react";
 import { AbsoluteFill, useCurrentFrame } from "remotion";
 import { useTheme, useVideoData } from "./context";
+import type { Box } from "./types";
 
-/** Word-by-word captions: one short line at a time, with the word being spoken highlighted. */
-export const Captions: React.FC = () => {
+/**
+ * Word-by-word captions: one short line at a time, with the word being spoken highlighted.
+ * Without `box` they sit at the bottom (or top) of the frame. With it they are laid out
+ * inside that rectangle, starting at its top, in the given size: that is how an export
+ * in another shape gets captions that fit it.
+ */
+export const Captions: React.FC<{ box?: Box & { fontSize: number } }> = ({ box }) => {
   const frame = useCurrentFrame();
   const { captions } = useVideoData();
   const t = useTheme();
@@ -13,17 +19,21 @@ export const Captions: React.FC = () => {
   const highlight = t.color(captions.highlight);
   return (
     <AbsoluteFill
-      style={{
-        justifyContent: captions.position === "top" ? "flex-start" : "flex-end",
-        alignItems: "center",
-        padding: `${Math.round(t.height * 0.05)}px ${Math.round(t.width * 0.08)}px`,
-        pointerEvents: "none",
-      }}
+      style={
+        box
+          ? { left: box.x, top: box.y, width: box.width, height: box.height, justifyContent: "flex-start", alignItems: "center", pointerEvents: "none" }
+          : {
+              justifyContent: captions.position === "top" ? "flex-start" : "flex-end",
+              alignItems: "center",
+              padding: `${Math.round(t.height * 0.05)}px ${Math.round(t.width * 0.08)}px`,
+              pointerEvents: "none",
+            }
+      }
     >
       <div
         style={{
           fontFamily: t.fontFamily,
-          fontSize: captions.fontSize,
+          fontSize: box?.fontSize ?? captions.fontSize,
           fontWeight: 800,
           lineHeight: 1.25,
           textAlign: "center",

@@ -2,7 +2,7 @@
 
 A studio for making explainer videos scene by scene. You describe the video. Claude plans it, builds every scene as its own small animation, and you review each scene by itself: approve it, or say what should change and only that scene is rebuilt.
 
-**Status:** Phases 1 to 4 of the scene studio are complete: projects, a local database, per-scene clips, your own images and video clips, an MCP server that Claude works through, parallel scene building, a GUI, five ways to make a scene (2D animation, 3D with react-three-fiber including models you made in Blender, Manim, images and video clips), and long videos that are written, approved, built and previewed one chapter at a time, with work that waits out Claude's usage limit and carries on by itself, references attached to single scenes, characters that stay the same from scene to scene, a hand-drawn look, sound effects on the narrator's words and music that dips under the voice. Finishing comes next (see [Roadmap](#roadmap)). The original command-line pipeline still works and is described [further down](#the-original-pipeline).
+**Status:** all five phases of the scene studio are complete: projects, a local database, per-scene clips, your own images and video clips, an MCP server that Claude works through, parallel scene building, a GUI, five ways to make a scene (2D animation, 3D with react-three-fiber including models you made in Blender, Manim, images and video clips), and long videos that are written, approved, built and previewed one chapter at a time, with work that waits out Claude's usage limit and carries on by itself, references attached to single scenes, characters that stay the same from scene to scene, a hand-drawn look, sound effects on the narrator's words, music that dips under the voice, two versions of a scene compared side by side, and export as 16:9, as 9:16 for Shorts and Reels, or square, each as a package ready to upload. The original command-line pipeline still works and is described [further down](#the-original-pipeline).
 
 ## Quick start
 
@@ -57,7 +57,9 @@ A video can be up to an hour long. So that you are not left waiting for all of i
 Open a scene to watch its clip with the narration, look at its test frames, read what Claude says it built, and see when each element is cued to the voice. Then:
 
 - **Approve this scene.** Its files are locked, so nothing can change an approved scene behind your back.
-- **Ask for changes.** Describe them in your own words. Claude continues the same session that built the scene, so it remembers what it did, and writes a new version. Only that scene is built and rendered again. Every earlier version is kept, and you can go back to one with a click.
+- **Ask for changes.** Describe them in your own words. Claude continues the same session that built the scene, so it remembers what it did, and writes a new version. Only that scene is built and rendered again. Every earlier version is kept.
+- **Compare two versions.** "Compare two side by side" plays both versions at once, in step, and lists what you asked for in between and what changed: the plan, the narration word by word, the length, and the scene's code line by line.
+- **Go back to a version.** Its clip is still there, so nothing is rendered again, and if you had approved that version it is approved again. The newer version is kept too.
 
 Because each scene has its own clip, joining the video takes seconds. Changing one scene of a long video costs one scene's build and render, not the whole video's.
 
@@ -125,6 +127,27 @@ Changing the look, the colours or the font marks the scenes already drawn as out
 
 Sound is mixed when a scene's review copy, a preview or the final video is put together. Changing an effect, the music or a level never renders a scene again.
 
+### Exporting
+
+On the **Video** tab, "Export" makes a package from the approved video, or from one chapter:
+
+| Format | Frame at 1080p | For |
+|---|---|---|
+| `landscape` | 1920 by 1080 | YouTube, a website, a presentation |
+| `shorts` | 1080 by 1920 | YouTube Shorts, Instagram Reels, TikTok |
+| `square` | 1080 by 1080 | Feeds that show square video |
+
+The shape the scenes were built in is exported as it is. Another shape is made from the same scenes, and no scene is built again: each scene's picture is placed in the new frame on the video's background colour, and its captions are laid out again for that frame. In 9:16 the picture takes the full width and the captions sit under it in larger type, clear of the bottom fifth of the frame where phone apps draw their own buttons. "A little closer" draws the picture larger and crops its sides; it is held back when it would leave no room for the captions. The first export of a shape renders each scene's placing once; after that only changed scenes are rendered.
+
+A package is a folder under `exports/` in the project:
+
+- the video, and its subtitles as an `.srt` file
+- `thumbnail.jpg`, a frame from late in the first scene
+- `description.txt`: the title, your description, and the chapter times the way video sites read them (`0:00 The question`)
+- `export.json`: the format, size and length, and which version of each scene went in
+
+YouTube takes Shorts of up to three minutes. A longer 9:16 export is still made, with a note, and one chapter can be exported by itself.
+
 ## How Claude works on a project
 
 Each piece of work is one Claude Code session, started in the background with `claude -p`. The session gets a role (planner, art director, foundation builder, scriptwriter or scene builder), a task, and a connection to the studio's **MCP server** in [`packages/mcp/`](packages/mcp/). Everything Claude does to a project goes through that server's tools.
@@ -178,6 +201,11 @@ npm run studio -- approve-scene <project> all
 npm run studio -- refresh <project>           # render every out-of-date scene again
 npm run studio -- assemble <project> --chapter 1    # a preview of one chapter
 npm run studio -- assemble <project> --final
+npm run studio -- versions <project> 1.3              # a scene's versions, and what was asked after each
+npm run studio -- compare <project> 1.3 1 2           # what differs between versions 1 and 2
+npm run studio -- rollback <project> 1.3 1            # version 1 is current again; its clip is reused
+npm run studio -- export <project> --format shorts    # landscape, shorts or square; --chapter 2, --zoom 1.25
+npm run studio -- exports <project>
 npm run studio -- asset add <project> photo.png --reference style --note "the colours, not the people"
 npm run studio -- keyframes <project> rival.mp4      # one frame of each shot, and a contact sheet
 npm run studio -- reference <project> 1.3 rival.mp4 --reference layout --at 12.5 --note "the split screen"
@@ -196,7 +224,7 @@ Projects live in a **workspace** folder outside the repository: `~/VideoStudio` 
 
 ```
 <workspace>/
-  studio.db                      SQLite: projects, chapters, scenes and their versions, assets, runs, reviews, clips, renders
+  studio.db                      SQLite: projects, chapters, scenes and their versions, assets, runs, reviews, clips, renders, exports
   projects/<project>/
     assets/                      your images, clips and sounds, stored once by content
     shared/components/           the current shared parts and characters, imported by scenes as "@shared/<Name>"
@@ -204,6 +232,7 @@ Projects live in a **workspace** folder outside the repository: `~/VideoStudio` 
     voice/<scene>/               the narration, one file per wording
     scenes/<scene>/v1/, v2/ ...  one folder per version: spec.json, scene.tsx or scene.py, stills/, clip-*.mp4, review-*.mp4
     renders/                     assembled videos and their .srt subtitles
+    exports/<name>/              one folder per export: the video, subtitles, thumbnail, description and export.json
     runs/                        the log of every Claude run
 ```
 
@@ -249,7 +278,7 @@ REMOTION_BROWSER_EXECUTABLE=/path/to/chrome npm test
 
 Code map:
 
-- `packages/core/src/studio/`: the studio. `db/` and `store/` hold the database and everything kept in it, `model/` the scene format, `renderers/` and `scenes/` turn a scene into stills and a clip, `assets/` reads what you add (models, and the shots of a reference video), `sound/` makes the built-in sounds and mixes voice, effects and music, `assemble.ts` joins clips, `tools/` are the tools Claude calls, `runs/` starts Claude and holds the prompts, and `workflow.ts` runs the stages, the queue and the approvals
+- `packages/core/src/studio/`: the studio. `db/` and `store/` hold the database and everything kept in it, `model/` the scene format, `renderers/` and `scenes/` turn a scene into stills and a clip, `assets/` reads what you add (models, and the shots of a reference video), `sound/` makes the built-in sounds and mixes voice, effects and music, `assemble.ts` joins clips, `export.ts` makes the other shapes and the packages, `scenes/compare.ts` compares two versions, `tools/` are the tools Claude calls, `runs/` starts Claude and holds the prompts, and `workflow.ts` runs the stages, the queue and the approvals
 - `packages/mcp/`: the MCP server that gives a Claude run its tools
 - `packages/server/`: the local server behind the GUI
 - `packages/web/`: the GUI, a React app that the server bundles when it starts
@@ -264,7 +293,7 @@ Code map:
 2. **More ways to make a scene** (done): 3D scenes with react-three-fiber, models from Blender as glTF, and Manim
 3. **Long videos** (done): chapters that are written, approved, built and previewed one at a time, work that waits out Claude's usage limit, and one action to bring out-of-date scenes up to date
 4. **Consistency and sound** (done): references for single scenes and reference videos read shot by shot, characters with fixed proportions and colours, a hand-drawn look, sound effects on cue words, and music that dips under the voice
-5. **Finishing**: comparing versions side by side, and export options
+5. **Finishing** (done): comparing versions side by side and going back to one, and export as 16:9, 9:16 or square with a package for upload
 
 Remotion is free for individuals and companies of up to three people. Larger companies need a [Remotion company license](https://www.remotion.dev/license).
 

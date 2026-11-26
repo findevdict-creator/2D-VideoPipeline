@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { assemble, type AssembleOptions, type AssembleResult } from "./assemble.js";
+import { exportVideo, type ExportOptions, type ExportResult } from "./export.js";
 import { newId, nowIso } from "./ids.js";
 import { ffmpeg } from "./media/ffmpeg.js";
 import { Lanes } from "./runs/lanes.js";
@@ -647,6 +648,13 @@ export class Orchestrator {
   assemble(projectId: string, opts: Omit<AssembleOptions, "onProgress" | "log"> = {}): Promise<AssembleResult> {
     return this.job(projectId, "assemble", opts.chapterId ?? null, (progress) =>
       assemble(this.studio, projectId, { ...opts, concurrency: this.studio.config.studio.lanes.renders, onProgress: (done, total) => progress(total ? done / total : 0) }),
+    );
+  }
+
+  /** Export the approved video, or one chapter, in one format. Clips the format still needs are rendered first. */
+  export(projectId: string, opts: Omit<ExportOptions, "onProgress" | "log" | "concurrency"> = {}): Promise<ExportResult> {
+    return this.job(projectId, "export", opts.chapterId ?? null, (progress) =>
+      exportVideo(this.studio, projectId, { ...opts, concurrency: this.studio.config.studio.lanes.renders, onProgress: (done, total) => progress(total ? done / total : 0) }),
     );
   }
 
