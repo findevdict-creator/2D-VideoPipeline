@@ -80,8 +80,8 @@ export async function recommendLength(studio: Studio, description: string, signa
   return parseLengthAdvice(await askClaude(studio, `${PROMPT}${text}\n---\n`, signal));
 }
 
-/** One question to Claude Code, answered in text. */
-function askClaude(studio: Studio, prompt: string, signal?: AbortSignal): Promise<string> {
+/** One question to Claude Code, answered in text. `failed` starts the error when no answer comes, such as "Claude could not recommend a length". */
+export function askClaude(studio: Studio, prompt: string, signal?: AbortSignal, failed = "Claude could not recommend a length", timeoutMs = 90_000): Promise<string> {
   const bin = studio.config.claudeBin;
   const args = ["-p", "--output-format", "json", "--tools", "", "--strict-mcp-config"];
   if (studio.config.model) args.push("--model", studio.config.model);
@@ -93,7 +93,7 @@ function askClaude(studio: Studio, prompt: string, signal?: AbortSignal): Promis
     const abort = () => stopProcess(child);
     signal?.addEventListener("abort", abort, { once: true });
     // A question this small is answered in seconds. A minute and a half means something is stuck.
-    const timer = setTimeout(() => stopProcess(child), 90_000);
+    const timer = setTimeout(() => stopProcess(child), timeoutMs);
     let out = "";
     let err = "";
     child.stdout.on("data", (d) => (out += d));
@@ -113,8 +113,8 @@ function askClaude(studio: Studio, prompt: string, signal?: AbortSignal): Promis
         result = undefined;
       }
       if (code !== 0 || !result || result.is_error) {
-        const detail = (result?.result ?? err.trim()) || (code === null ? "no answer after 90 seconds" : `exit code ${code}`);
-        return reject(new Error(`Claude could not recommend a length: ${detail.split("\n")[0]}`));
+        const detail = (result?.result ?? err.trim()) || (code === null ? `no answer after ${Math.round(timeoutMs / 1000)} seconds` : `exit code ${code}`);
+        return reject(new Error(`${failed}: ${detail.split("\n")[0]}`));
       }
       resolve(result.result ?? "");
     });

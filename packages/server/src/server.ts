@@ -18,6 +18,8 @@ import { assetPreview } from "@studio/core/studio/assets/preview";
 import type { ModelInfo } from "@studio/core/studio/assets/gltf";
 import { getChapter } from "@studio/core/studio/store/chapters";
 import { createProject, getProject, updateProject } from "@studio/core/studio/store/projects";
+import { previewVoice, setVoice } from "@studio/core/studio/voices";
+import { saveYouTubeDetails, writeYouTubeDetails } from "@studio/core/studio/youtube";
 import { getRun, readRunLog } from "@studio/core/studio/store/runs";
 import { chooseColours, deleteScene, getScene, moveScene, rollbackScene, setTheme, updatePlan } from "@studio/core/studio/store/scenes";
 import { closeSharedRequest } from "@studio/core/studio/store/shared";
@@ -114,6 +116,48 @@ export async function startServer(studio: Studio, opts: { port?: number; orchest
       return { ok: true, theme: done.theme, scenesNowStale: done.stale.length, warnings: done.warnings };
     } catch (err) {
       throw new Refused((err as Error).message);
+    }
+  });
+  // ---------- Thumbnail, upload details, voice ----------
+  route("POST", "/api/projects/:project/thumbnail", ({ params, body }) => {
+    try {
+      const run = o.designThumbnail(getProject(studio, params.project!).id, notes(body) || undefined);
+      return { started: true, runId: run.id };
+    } catch (err) {
+      throw new Refused((err as Error).message);
+    }
+  });
+  route("POST", "/api/projects/:project/youtube", async ({ params, body }) => {
+    try {
+      return await writeYouTubeDetails(studio, getProject(studio, params.project!).id, { notes: notes(body) || undefined });
+    } catch (err) {
+      throw new Refused((err as Error).message);
+    }
+  });
+  route("PATCH", "/api/projects/:project/youtube", ({ params, body }) => {
+    const text = (v: unknown) => (typeof v === "string" ? v : undefined);
+    const words = (v: unknown) => (Array.isArray(v) ? v.map(String) : typeof v === "string" ? v.split(",") : undefined);
+    try {
+      return saveYouTubeDetails(studio, getProject(studio, params.project!).id, { title: text(body?.title), description: text(body?.description), tags: words(body?.tags), hashtags: words(body?.hashtags) });
+    } catch (err) {
+      throw new Refused((err as Error).message);
+    }
+  });
+  route("POST", "/api/projects/:project/voice", ({ params, body }) => {
+    try {
+      const project = setVoice(studio, getProject(studio, params.project!).id, { voice: typeof body?.voice === "string" ? body.voice : undefined, pace: typeof body?.pace === "string" ? body.pace : undefined });
+      return { ok: true, voice: project.settings.voice };
+    } catch (err) {
+      throw new Refused((err as Error).message);
+    }
+  });
+  route("POST", "/api/projects/:project/voice/preview", async ({ params, body }) => {
+    const project = getProject(studio, params.project!);
+    try {
+      const sample = await previewVoice(studio, project.id, { voice: typeof body?.voice === "string" ? body.voice : undefined, pace: typeof body?.pace === "string" ? body.pace : undefined });
+      return { url: `/files/${project.slug}/${sample.file}`, voice: sample.voice, pace: sample.pace, silent: sample.silent };
+    } catch (err) {
+      throw new Refused((err as Error).message.split("\n")[0]!);
     }
   });
   route("POST", "/api/projects/:project/stage/start", ({ params, body }) => {

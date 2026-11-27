@@ -401,10 +401,12 @@ export class Orchestrator {
       }
     }
     // Scenes of an approved chapter are built while later chapters are still being written, so scene runs never hold a stage back.
-    const planning = active.filter((r) => r.targetKind !== "scene");
+    // A thumbnail is designed beside the video and holds nothing back either.
+    const stageWork = active.filter((r) => r.targetKind !== "thumbnail");
+    const planning = stageWork.filter((r) => r.targetKind !== "scene");
     if (planning.length && project.stage !== "scenes") waitingOn.unshift(`${planning.length} run(s) still working.`);
     // While scene lists are being written, the scenes of chapters already approved are built alongside; those runs belong to the next stage.
-    const running = project.stage === "chapters" ? planning.length : active.length;
+    const running = project.stage === "chapters" ? planning.length : stageWork.length;
     return { stage: project.stage, about: ABOUT[project.stage], running, waitingOn };
   }
 
@@ -646,6 +648,16 @@ export class Orchestrator {
    * Bring every out-of-date scene up to date in one go. Each is rendered again with the
    * shared components as they are now, and goes back up for your review. No agent runs.
    */
+  /**
+   * Have Claude design the video's thumbnail, or change the one it made. It can be asked for
+   * at any point after the outline; the later it is, the more of the video it can draw on.
+   */
+  designThumbnail(projectId: string, notes?: string): AgentRun {
+    const project = getProject(this.studio, projectId);
+    if (!latestDocument(this.studio, projectId, "outline")) throw new Error("The thumbnail is designed from the video's plan. Wait until the outline is written.");
+    return this.startRun({ projectId: project.id, kind: "thumbnail", notes: notes?.trim() || undefined });
+  }
+
   rebuildStale(projectId: string): string[] {
     const { studio } = this;
     const stale = listScenes(studio, projectId).filter((s) => s.status === "stale");

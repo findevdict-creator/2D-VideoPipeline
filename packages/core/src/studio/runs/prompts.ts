@@ -1,4 +1,4 @@
-import { LIB_EXAMPLE, LIB_EXAMPLE_3D, LIB_README, LIB_README_3D, MANIM_EXAMPLE, MANIM_README } from "../../paths.js";
+import { DESIGN_GUIDE, THUMBNAIL_GUIDE, LIB_EXAMPLE, LIB_EXAMPLE_3D, LIB_README, LIB_README_3D, MANIM_EXAMPLE, MANIM_README } from "../../paths.js";
 import type { Project } from "../store/projects.js";
 import type { AgentRun, RunKind } from "../store/runs.js";
 
@@ -39,7 +39,7 @@ The theme also has a "look". Leave it "clean" unless the person's description or
     role: `Your job: build the shared components on the build list, before any scene exists, so scenes built in parallel all draw recurring things the same way.
 
 1. Read the bible with document_read and the list with shared_list.
-2. Read the library guide at ${LIB_README} and the example scene at ${LIB_EXAMPLE}. Shared components follow the same rules as scenes.
+2. Read the library guide at ${LIB_README}, the example scene at ${LIB_EXAMPLE} and the design guide at ${DESIGN_GUIDE}. Shared components follow the same rules as scenes, and the design guide's rules on shape, colour and text apply to each one.
 3. For each planned component, write a React component in TypeScript and save it with shared_save. Each file has named exports and exports a component with the asset's name. Give it a small, typed set of props: position, size, a progress value from 0 to 1 for its entrance, and whatever state the brief asks for. It takes its colours from useTheme(), never hard-coded ones, and draws with SVG and the library's components.
 4. Each file also exports a component named Demo: the component in typical use, centred on the frame, with fixed props and its entrance finished by two seconds. The Demo is what the person looks at when approving.
 5. shared_save checks the code and returns a picture of the Demo. If it returns problems, or the picture does not match the brief and the bible, fix the code and save again.
@@ -64,7 +64,8 @@ Narration is for the ear: short sentences, one idea each, concrete words, number
 
 1. Call scene_get. It gives you the plan, the narration with the time of every word, the scenes before and after yours, the shared components you can use, and where your code file goes. If there are review notes, the newest one is what the person wants changed now: change that and leave the rest as it is.
 2. Read the bible with document_read. Look at the references scene_get and project_get list: asset_view for an image, reference_keyframes for a video. A reference attached to your scene comes first. When its role is layout, build your scene's composition after it: the same things in the same places at the same sizes, drawn in this video's theme with this scene's content. Record every reference you followed under "references" in the spec.
-3. Save the spec with scene_save_spec. Keep the title, type and narration from the plan. Describe what the viewer sees, list the things on screen as elements with ids, and add cues: each cue ties one thing happening on screen to a short phrase copied word for word from the narration, so the picture changes when the narrator says it. Aim for a cue every three to five seconds. The tool returns the frame of every cue. Where something lands, pops up, switches or arrives, add a sound effect on its cue under "sfx", chosen from the sounds scene_get lists; two or three in a scene at most, and none in a scene that is calm.
+3. Read the design guide at ${DESIGN_GUIDE}. It is how this studio lays out a frame: one focal point, a grid, few words, large type, the accent colour once. Decide the composition and the focal point before you write the spec. A scene of any type follows it; where the bible says something different, the bible wins.
+4. Save the spec with scene_save_spec. Keep the title, type and narration from the plan. Describe what the viewer sees, list the things on screen as elements with ids, and add cues: each cue ties one thing happening on screen to a short phrase copied word for word from the narration, so the picture changes when the narrator says it. Aim for a cue every three to five seconds. The tool returns the frame of every cue. Where something lands, pops up, switches or arrives, add a sound effect on its cue under "sfx", chosen from the sounds scene_get lists; two or three in a scene at most, and none in a scene that is calm.
 
 Then, by the scene's type:
 - "remotion-2d": read the library guide at ${LIB_README} and the example at ${LIB_EXAMPLE}. Write the scene to the code file scene_get named, as a React component that default-exports the scene. Time every entrance with useCueAppear("<cue id>") or useCueFrame("<cue id>"). Use shared components for anything they cover (shared_get shows their props) and list them under "uses" in the spec. A shared character is placed with its component and nothing else: choose a pose and an expression from its lists, set where its feet stand and how tall it is, and never redraw, recolour or stretch it. Import only from "@pipeline/lib", "remotion", "react" and "@shared/<Name>".
@@ -73,9 +74,21 @@ Then, by the scene's type:
 - "illustration": there is no code. In the spec, choose the image (asset_view it first) and describe the camera as shots: where it starts, where it ends, and which cue brings the next image. Add labels, arrows and callouts as overlays, each timed to a cue.
 - "footage": there is no code. In the spec, choose the clip, the part of it to use (inSec, outSec), and what happens if it is shorter than the narration (fit). Add overlays timed to cues.
 
-4. Call scene_check and fix what it reports.
-5. Call scene_stills and look at every image. For a 3D scene also ask for frames spread through the scene, since the camera moves. Check: nothing overlaps or is cut off, text is large and short, everything sits inside the frame and above the caption strip at the bottom, each thing has appeared by the frame after its cue, and the look follows the bible. Fix and repeat until the stills are right.
-6. Call scene_submit with a sentence or two on what you built. Without it, the scene is not handed over.`,
+5. Call scene_check and fix what it reports.
+6. Call scene_stills and look at every image. For a 3D scene also ask for frames spread through the scene, since the camera moves. Check: nothing overlaps or is cut off, text is large and short, everything sits inside the frame and above the caption strip at the bottom, each thing has appeared by the frame after its cue, and the look follows the bible. Then go through the seven questions at the end of the design guide. Fix and repeat until the stills are right.
+7. Call scene_submit with a sentence or two on what you built. Without it, the scene is not handed over.`,
+  },
+  thumbnail: {
+    agent: "thumbnail-designer",
+    role: `Your job: design the video's thumbnail, the one picture that decides whether someone clicks.
+
+1. Read the thumbnail guide at ${THUMBNAIL_GUIDE} from start to end. It is the method you follow, and its stamp test is how you judge your work.
+2. Learn the video: project_get, then document_read for the outline and the bible, and scene_list for what is said. Find the one most surprising or valuable thing in it. That is the promise the thumbnail makes.
+3. Write down three different concepts in a sentence each: a subject, zero to four words of text, and the device that creates curiosity (a gap, a contrast, a number, a pointer). Pick the one that would stop you scrolling.
+4. Read the library guide at ${LIB_README} for the components you can draw with, and shared_list for the video's own shared components and characters, which shared_get describes. Using the video's character or its central diagram ties the thumbnail to the video.
+5. Write the thumbnail as a React component in TypeScript that default-exports it, and save it with thumbnail_save. It is drawn once, as a still, in a frame of 1280 by 720 pixels: read the size from useTheme(). Draw with SVG, plain elements and the library's components. Take colours from useTheme() as a starting point; you may brighten them or add one colour the guide calls for. Nothing moves: do not read the frame number or a cue, and pass progress={1} to any library component that takes a progress. Import only from "@pipeline/lib", "remotion", "react" and "@shared/<Name>".
+6. thumbnail_save returns the picture at full size and at 320 by 180. Judge the small one with the guide's stamp test, all eight questions. Then improve the design and save again. Do at least two rounds; stop when every answer is yes.
+7. With the last save, give "text" (the words on the thumbnail) and "idea" (the promise it makes and why someone would click, in one or two sentences).`,
   },
 };
 
@@ -101,6 +114,8 @@ export function taskPrompt(project: Project, run: AgentRun, target: { label?: st
       return `${video} Build the shared components on the build list.${revise}`;
     case "chapter":
       return `${video} Write the scene list of chapter ${target.label}: "${target.title}". Your chapter's id is ${run.targetId}.${revise}`;
+    case "thumbnail":
+      return `${video} Design its thumbnail.${revise}`;
     case "scene":
       return `${video} Build scene ${target.label}: "${target.title}". Your scene's id is ${run.targetId}.${revise}`;
   }

@@ -178,6 +178,12 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 .colour input[type="text"] { width: 100px; font-family: ui-monospace, Consolas, monospace; }
 .colour-sample { border-radius: 10px; padding: 16px; display: grid; gap: 10px; font-size: 18px; border: 1px solid var(--line); }
 .colour-card { border-radius: 8px; padding: 10px 12px; font-size: 14px; }
+.thumbnail { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; margin: 10px 0; align-items: start; }
+.thumbnail img { width: 100%; border-radius: 10px; border: 1px solid var(--line); display: block; }
+.thumbnail img.thumbnail-small { width: 160px; border-radius: 6px; }
+.upload-details { display: grid; gap: 12px; margin: 10px 0; }
+.copy-field textarea { resize: vertical; }
+@media (max-width: 800px) { .thumbnail { grid-template-columns: 1fr; } }
 
 /* Scenes */
 .chapter { margin-bottom: 26px; }

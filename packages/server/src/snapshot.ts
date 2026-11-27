@@ -5,6 +5,9 @@ import { referenceKeyframes } from "@studio/core/studio/assets/keyframes";
 import { findAsset, listAssets, listProjectReferences, listSceneReferences } from "@studio/core/studio/store/assets";
 import { listChapters } from "@studio/core/studio/store/chapters";
 import { listDocuments, readDocument } from "@studio/core/studio/store/documents";
+import { getThumbnail } from "@studio/core/studio/thumbnail";
+import { PACES, VOICES } from "@studio/core/studio/voices";
+import { getYouTubeDetails } from "@studio/core/studio/youtube";
 import { FONTS, PALETTE_USE, PALETTES, paletteWarnings } from "@studio/core/studio/model/project";
 import { getProject, listProjects, projectPaths, type Project } from "@studio/core/studio/store/projects";
 import { listRuns } from "@studio/core/studio/store/runs";
@@ -172,6 +175,12 @@ export function projectSnapshot(studio: Studio, orchestrator: Orchestrator, idOr
     stage: orchestrator.stageStatus(project.id),
     /** Set while work is on hold for Claude's usage limit. */
     usage: orchestrator.usagePause(),
+    /** The designed thumbnail, when there is one, and whether one is being designed now. */
+    thumbnail: thumbnailView(studio, project),
+    /** The title, description and tags for uploading, once written. */
+    youtube: getYouTubeDetails(studio, project.id) ?? null,
+    /** Who can narrate. */
+    voices: { list: VOICES, paces: PACES, silent: studio.config.voice.engine === "mock" },
     /** What the look editor offers: ready-made colour schemes, fonts, and what each colour is for. */
     colours: { schemes: PALETTES, fonts: FONTS, use: PALETTE_USE, warnings: paletteWarnings(project.settings.theme.palette) },
     sceneTypes: availableSceneTypes(studio).map((t) => ({ type: t, about: SCENE_TYPE_GUIDE[t] })),
@@ -223,6 +232,17 @@ export function projectSnapshot(studio: Studio, orchestrator: Orchestrator, idOr
       subtitlesUrl: fileUrl(studio, project, e.files.subtitles),
       thumbnailUrl: fileUrl(studio, project, e.files.thumbnail),
       descriptionUrl: fileUrl(studio, project, e.files.description),
+      youtubeUrl: fileUrl(studio, project, e.files.youtube),
     })),
+  };
+}
+
+function thumbnailView(studio: Studio, project: Project) {
+  const t = getThumbnail(studio, project.id);
+  const run = listRuns(studio, project.id, { limit: 60 }).find((r) => r.targetKind === "thumbnail");
+  return {
+    designing: run?.status === "queued" || run?.status === "running",
+    failed: run?.status === "failed" ? (run.error ?? "The run failed.") : null,
+    design: t ? { version: t.version, text: t.text, idea: t.idea, updatedAt: t.updatedAt, url: fileUrl(studio, project, t.image), smallUrl: fileUrl(studio, project, t.small) } : null,
   };
 }

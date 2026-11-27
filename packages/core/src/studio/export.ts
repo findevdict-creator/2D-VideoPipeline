@@ -18,6 +18,8 @@ import { getChapter, listChapters } from "./store/chapters.js";
 import { fromRow, fromRows } from "./store/mapping.js";
 import { getProject, projectPaths, type Project } from "./store/projects.js";
 import { getScene, type Scene } from "./store/scenes.js";
+import { copyThumbnail } from "./thumbnail.js";
+import { fullDescription, getYouTubeDetails, uploadSheet } from "./youtube.js";
 
 /** The shapes a video can be exported in. Each is made from the same approved scenes. */
 export const EXPORT_FORMATS = {
@@ -271,7 +273,7 @@ export interface ExportRecord {
   /** The package folder, relative to the project folder. */
   folder: string;
   /** The files in the package, relative to the project folder. */
-  files: { video: string; subtitles: string; thumbnail: string | null; description: string; manifest: string };
+  files: { video: string; subtitles: string; thumbnail: string | null; description: string; manifest: string; /** The title, description and tags for the upload form, when they were written. */ youtube?: string };
   width: number;
   height: number;
   durationSec: number;
@@ -371,11 +373,13 @@ export async function exportVideo(studio: Studio, projectId: string, opts: Expor
   const video = path.join(folder, `${name}.mp4`);
   const { sceneVersions, durationSec, srt } = await joinClips(studio, projectId, parts, video, log);
 
-  // The thumbnail: late in the first scene, when what it shows has arrived.
+  // The thumbnail: the designed one for a 16:9 video, which is the shape thumbnails have. Otherwise a frame
+  // from late in the first scene, when what it shows has arrived.
   const thumbnail = path.join(folder, "thumbnail.jpg");
   const first = sceneVersions[0]!;
   try {
-    await ffmpeg(["-ss", ((first.frames * 0.8) / project.fps).toFixed(3), "-i", video, "-frames:v", "1", "-q:v", "2", thumbnail]);
+    const designed = format === "landscape" && (await copyThumbnail(studio, project.id, thumbnail));
+    if (!designed) await ffmpeg(["-ss", ((first.frames * 0.8) / project.fps).toFixed(3), "-i", video, "-frames:v", "1", "-q:v", "2", thumbnail]);
   } catch (err) {
     notes.push(`The thumbnail could not be made: ${(err as Error).message.split("\n")[0]}`);
   }
@@ -391,7 +395,12 @@ export async function exportVideo(studio: Studio, projectId: string, opts: Expor
   const description = path.join(folder, "description.txt");
   const about = [opts.chapterId ? `${project.title}: ${getChapter(studio, opts.chapterId).title}` : project.title, "", project.description];
   if (chapters.length > 1) about.push("", "Chapters", ...chapters.map((c) => `${timestamp(c.startSec)} ${c.title}`));
-  fs.writeFileSync(description, about.join("\n") + "\n");
+  // With upload details written for the video, the description is the one to paste, and a sheet holds the title and tags too.
+  const details = opts.chapterId ? undefined : getYouTubeDetails(studio, project.id);
+  const times = chapters.map((c) => ({ title: c.title, time: timestamp(c.startSec) }));
+  fs.writeFileSync(description, details ? fullDescription(details, times) + "\n" : about.join("\n") + "\n");
+  const sheet = path.join(folder, "youtube.txt");
+  if (details) fs.writeFileSync(sheet, uploadSheet(details, times));
 
   if (format === "shorts" && durationSec > SHORTS_MAX_SEC) {
     notes.push(`This video is ${timestamp(durationSec)} long. YouTube takes Shorts of up to ${SHORTS_MAX_SEC / 60} minutes, so a longer one is treated as an ordinary video. One chapter can be exported by itself.`);
@@ -400,7 +409,7 @@ export async function exportVideo(studio: Studio, projectId: string, opts: Expor
   const id = newId("ex");
   const createdAt = nowIso();
   const manifest = path.join(folder, "export.json");
-  const files = { video: p.rel(video), subtitles: p.rel(srt), thumbnail: fs.existsSync(thumbnail) ? p.rel(thumbnail) : null, description: p.rel(description), manifest: p.rel(manifest) };
+  const files = { video: p.rel(video), subtitles: p.rel(srt), thumbnail: fs.existsSync(thumbnail) ? p.rel(thumbnail) : null, description: p.rel(description), manifest: p.rel(manifest), ...(details ? { youtube: p.rel(sheet) } : {}) };
   fs.writeFileSync(
     manifest,
     JSON.stringify(

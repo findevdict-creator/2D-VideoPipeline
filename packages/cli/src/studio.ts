@@ -6,6 +6,9 @@ import { Studio } from "@studio/core/studio/studio";
 import { listChapters } from "@studio/core/studio/store/chapters";
 import { createProject, getProject, listProjects, projectPaths, updateProject } from "@studio/core/studio/store/projects";
 import { listRuns, readRunLog } from "@studio/core/studio/store/runs";
+import { getThumbnail } from "@studio/core/studio/thumbnail";
+import { PACES, setVoice, VOICES } from "@studio/core/studio/voices";
+import { uploadSheet, writeYouTubeDetails } from "@studio/core/studio/youtube";
 import { Orchestrator } from "@studio/core/studio/workflow";
 import { chooseColours, type ColourChoice, deleteScene, findScene, getScene, listReviews, listScenes, listVersions, moveScene, rollbackScene, sceneLabel, setTheme } from "@studio/core/studio/store/scenes";
 import { compareVersions } from "@studio/core/studio/scenes/compare";
@@ -56,6 +59,9 @@ Usage:
   npm run studio -- compare <project> <scene> <version> <version>   what differs between two versions of a scene
   npm run studio -- rollback <project> <scene> <version>            make an earlier version the current one again; its clip is reused
   npm run studio -- export <project>                 export the approved video as a package (--format landscape|shorts|square, --chapter, --fit, --zoom, --subtitles)
+  npm run studio -- voice <project> [voice] [slow|normal|fast]   show the voices, or choose who narrates and how fast
+  npm run studio -- thumbnail <project>              have Claude design the thumbnail (--notes to ask for changes)
+  npm run studio -- youtube <project>                have Claude write the title, description and tags for uploading (--notes)
   npm run studio -- subtitles <project> <on|off>     show or hide the subtitles drawn in the video (the .srt file is always written)
   npm run studio -- exports <project>                list what was exported
 
@@ -446,6 +452,48 @@ async function run(
     const scene = findScene(studio, project.id, required(rest[1], "scene"));
     const back = rollbackScene(studio, scene.id, versionNumber(rest[2]));
     console.log(`${sceneLabel(studio, back)} ${back.title} is on version ${versionNumber(rest[2])} again (${back.status}). Its clip is reused; nothing is rendered again.`);
+    return;
+  }
+  if (command === "voice") {
+    const project = getProject(studio, required(rest[0], "project"));
+    const words = rest.slice(1);
+    if (!words.length) {
+      console.log(`${project.slug} is narrated by ${project.settings.voice.kokoroVoice} at a ${project.settings.voice.pace} pace.\n`);
+      for (const accent of ["American", "British"] as const) for (const gender of ["female", "male"] as const) console.log(`${accent}, ${gender}: ${VOICES.filter((v) => v.accent === accent && v.gender === gender).map((v) => v.id).join(", ")}`);
+      console.log(`\nChoose one: npm run studio -- voice ${project.slug} bm_george slow`);
+      return;
+    }
+    const pace = words.find((w) => (PACES as readonly string[]).includes(w.toLowerCase()))?.toLowerCase();
+    const voice = words.find((w) => !(PACES as readonly string[]).includes(w.toLowerCase()));
+    const changed = setVoice(studio, project.id, { voice, pace });
+    console.log(`${project.slug} is now narrated by ${changed.settings.voice.kokoroVoice} at a ${changed.settings.voice.pace} pace. Narration is recorded again the next time a preview or the final video is put together.`);
+    return;
+  }
+  if (command === "youtube") {
+    const project = getProject(studio, required(rest[0], "project"));
+    console.log("Asking Claude for the title, description and tags...");
+    const details = await writeYouTubeDetails(studio, project.id, { notes: flags.notes });
+    console.log(`\n${uploadSheet(details, [])}`);
+    console.log("Saved with the project. An export adds the chapter times and writes it all to youtube.txt in the export folder.");
+    return;
+  }
+  if (command === "thumbnail") {
+    const project = getProject(studio, required(rest[0], "project"));
+    const o = new Orchestrator(studio);
+    try {
+      o.designThumbnail(project.id, flags.notes);
+      console.log("Claude is designing the thumbnail. This takes a few minutes...");
+      await o.idle();
+    } finally {
+      o.stop();
+    }
+    const run = listRuns(studio, project.id, { limit: 20 }).find((r) => r.targetKind === "thumbnail");
+    if (run?.status !== "done") throw new Error(`The thumbnail was not finished: ${run?.error ?? run?.status ?? "no run"}`);
+    const t = getThumbnail(studio, project.id);
+    if (!t) throw new Error("Claude finished without saving a thumbnail. Run the command again.");
+    console.log(t.image ? `Thumbnail: ${projectPaths(studio, project).abs(t.image)}` : "The design is saved, but it was not drawn on this computer.");
+    if (t.text) console.log(`Words on it: ${t.text}`);
+    if (t.idea) console.log(`The idea: ${t.idea}`);
     return;
   }
   if (command === "subtitles" || command === "captions") {
