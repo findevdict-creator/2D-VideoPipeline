@@ -158,7 +158,23 @@ On the **Video** tab, "Export" makes a package from the approved video, or from 
 | `shorts` | 1080 by 1920 | YouTube Shorts, Instagram Reels, TikTok |
 | `square` | 1080 by 1080 | Feeds that show square video |
 
-The shape the scenes were built in is exported as it is. Another shape is made from the same scenes, and no scene is built again: each scene's picture is placed in the new frame on the video's background colour, and its captions are laid out again for that frame. In 9:16 the picture takes the full width and the captions sit under it in larger type, clear of the bottom fifth of the frame where phone apps draw their own buttons. "A little closer" draws the picture larger and crops its sides; it is held back when it would leave no room for the captions. The first export of a shape renders each scene's placing once; after that only changed scenes are rendered.
+The shape the scenes were built in is exported as it is. Another shape is made from the same scenes, and no scene is built again: each scene's picture is placed in the new frame and its subtitles are laid out again for that frame. "How the picture fits" decides the placing:
+
+| Fit | What you get |
+|---|---|
+| `fill` (the default) | The picture covers the whole frame. A 16:9 video in a 9:16 frame keeps the middle third of its width, and the subtitles lie over the picture, above the part of the screen where phone apps draw their buttons |
+| `blur` | The whole picture across the width, with an enlarged, blurred copy of itself filling the rest of the frame, and the subtitles in a band under the picture |
+| `whole` | The whole picture on the video's background colour. `--zoom` (1 to 2) draws it larger and crops its sides |
+
+A wide video cannot fill a vertical frame without losing its sides. When the video is meant for phones, choose 9:16 when you create the project: then every scene is laid out for a vertical frame and nothing is cropped.
+
+**Subtitles.** The narration is drawn in the picture word by word by default. "Draw subtitles in the video" under **Plan → Subtitles** turns that off or on for the project (`npm run studio -- subtitles <project> off`); clips are drawn again the next time a preview or the final video is put together, and no scene is built again. An export has its own "Subtitles in the picture" tick (`--subtitles on|off`), so the same video can be exported both ways. The `.srt` file is written either way.
+
+```bash
+npm run studio -- export <project> --format shorts                      # fills the frame
+npm run studio -- export <project> --format shorts --fit blur            # the whole picture on a blurred copy
+npm run studio -- export <project> --format shorts --subtitles off       # no subtitles in the picture
+```
 
 A package is a folder under `exports/` in the project:
 

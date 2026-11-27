@@ -121,7 +121,7 @@ test("new colours put drawn scenes out of date and change their clips; who chose
     assert.equal(getScene(studio, first!.id).status, "stale");
     assert.match(getScene(studio, first!.id).staleReason!, /colours or font changed/);
     assert.notEqual(await keyOf(), before);
-    const style = (await sceneContext(studio, first!.id)).data.style as Record<string, unknown>;
+    const style = (await sceneContext(studio, first!.id)).data.style as unknown as Record<string, unknown>;
     assert.equal((style.palette as any).background, "#2B1330");
     assert.equal(style.fontFamily, "Verdana");
     assert.equal("locked" in style, false);
