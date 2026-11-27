@@ -19,7 +19,7 @@ import type { ModelInfo } from "@studio/core/studio/assets/gltf";
 import { getChapter } from "@studio/core/studio/store/chapters";
 import { createProject, getProject, updateProject } from "@studio/core/studio/store/projects";
 import { getRun, readRunLog } from "@studio/core/studio/store/runs";
-import { deleteScene, getScene, moveScene, rollbackScene, setTheme, updatePlan } from "@studio/core/studio/store/scenes";
+import { chooseColours, deleteScene, getScene, moveScene, rollbackScene, setTheme, updatePlan } from "@studio/core/studio/store/scenes";
 import { closeSharedRequest } from "@studio/core/studio/store/shared";
 import { Orchestrator } from "@studio/core/studio/workflow";
 import { exportFormat, MAX_ZOOM } from "@studio/core/studio/export";
@@ -99,6 +99,22 @@ export async function startServer(studio: Studio, opts: { port?: number; orchest
     updateProject(studio, project.id, { title: body.title, description: body.description, targetDurationSec: body.targetDurationSec, settings: given ? rest : undefined });
     const stale = theme ? setTheme(studio, project.id, theme) : [];
     return { ok: true, scenesNowStale: stale.length };
+  });
+  // The person's own colours and font. Kept by Claude from then on, until they hand the choice back.
+  route("POST", "/api/projects/:project/colours", ({ params, body }) => {
+    const project = getProject(studio, params.project!);
+    const text = (v: unknown) => (typeof v === "string" && v.trim() ? v : undefined);
+    try {
+      const done = chooseColours(studio, project.id, {
+        scheme: text(body.scheme),
+        palette: body.palette && typeof body.palette === "object" ? body.palette : undefined,
+        fontFamily: text(body.fontFamily),
+        locked: typeof body.locked === "boolean" ? body.locked : undefined,
+      });
+      return { ok: true, theme: done.theme, scenesNowStale: done.stale.length, warnings: done.warnings };
+    } catch (err) {
+      throw new Refused((err as Error).message);
+    }
   });
   route("POST", "/api/projects/:project/stage/start", ({ params, body }) => {
     const runs = o.startStage(getProject(studio, params.project!).id, notes(body) || undefined);

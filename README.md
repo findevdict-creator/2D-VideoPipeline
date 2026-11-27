@@ -117,6 +117,23 @@ A character that appears in more than one scene is a shared part of its own kind
 
 A scene can only place the character: where it stands, how tall it is, which pose and expression, which way it faces, and whether it is talking. It cannot stretch it, recolour it or invent a pose, and the scene's check refuses a pose or an expression the character does not have. That is what keeps one character the same in every scene, built in parallel by different runs.
 
+### Colours and font
+
+Claude chooses six colours and a font when it writes the bible. You can choose them yourself instead, at any stage, under **Plan → Look → Change colours and font**: pick a ready-made scheme (Midnight, Paper, Chalkboard, Sunset, Forest, Black and white, Pastel, Blueprint), or set any of the six colours with a colour picker or a hex code, and type a font. A sample shows the combination before you save, and the studio warns when text would be hard to read.
+
+Once you have chosen, Claude keeps your colours and font and writes the bible around them, including when you ask it to revise the bible. "Let Claude choose again" hands the choice back. Choose before you approve the outline if you want the whole video built in your colours from the start.
+
+The font is used by name, so it must be installed on the computer that renders. A name that is not installed falls back to Inter or the system's sans-serif.
+
+```bash
+npm run studio -- colours <project>                       # show the colours, the font and the schemes
+npm run studio -- colours <project> paper                 # a ready-made scheme
+npm run studio -- colours <project> primary=#FF6B00 font=Georgia   # single colours and the font
+npm run studio -- colours <project> claude                # let Claude choose again
+```
+
+Scenes take their colours from the theme, so scenes already drawn only need rendering again, not building again. A shared part or character whose own colours were fixed when it was built keeps them; ask for changes to it on the Shared parts tab.
+
 ### The hand-drawn look
 
 Under **Plan → Look → Lines**, a video can be drawn clean or hand-drawn. Hand-drawn makes every edge waver slightly and redraws the wobble a few times a second, the way a line drawn again for each frame does. Captions stay sharp. It applies to 2D, 3D and image scenes, not to video clips and Manim scenes.
@@ -247,6 +264,7 @@ npm run studio -- asset add <project> photo.png --reference style --note "the co
 npm run studio -- keyframes <project> rival.mp4      # one frame of each shot, and a contact sheet
 npm run studio -- reference <project> 1.3 rival.mp4 --reference layout --at 12.5 --note "the split screen"
 npm run studio -- look <project> hand-drawn
+npm run studio -- colours <project> paper   # or primary=#FF6B00 font=Georgia
 npm run studio -- music <project> calm.mp3 --volume 0.12 --pause-volume 0.4    # or "off"; --steady for one level
 npm run studio -- sfx <project> off                  # leave out the sound effects scenes ask for
 npm run studio -- import examples/how-gps-works     # bring a pipeline production in as a project

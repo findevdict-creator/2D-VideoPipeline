@@ -266,17 +266,8 @@ function PlanTab({ snap }: { snap: Snapshot }) {
         <Doc title="Bible" doc={snap.documents.bible} empty="Written after you approve the outline: the voice, the look, and the things that recur." />
         <section className="card">
           <h3>Look</h3>
-          <div className="swatches">
-            {Object.entries(theme.palette).map(([name, colour]) => (
-              <div key={name} className="swatch">
-                <span style={{ background: colour }} />
-                {name}
-              </div>
-            ))}
-          </div>
-          <p className="muted">
-            {theme.fontFamily} · {theme.visualStyle}
-          </p>
+          <Colours snap={snap} />
+          <p className="muted">{theme.visualStyle}</p>
           <LookSwitch snap={snap} />
         </section>
         <Sound snap={snap} />
@@ -349,6 +340,134 @@ function Sound({ snap }: { snap: Snapshot }) {
       </div>
       <p className="muted small">Music is added when a preview or the final video is put together. Effects are also in each scene's own clip the next time it is rendered. No scene has to be built again.</p>
     </section>
+  );
+}
+
+/**
+ * The video's six colours and its font. Claude picks them when it writes the bible; here the
+ * person can pick a ready-made scheme or any colour of their own, at any stage. Their choice
+ * is kept by Claude from then on. Built scenes go out of date and one action renders them again.
+ */
+function Colours({ snap }: { snap: Snapshot }) {
+  const [busy, act] = useAction();
+  const theme = snap.project.settings.theme;
+  const { schemes, fonts, use } = snap.colours;
+  const [editing, setEditing] = useState(false);
+  const [palette, setPalette] = useState<Record<string, string>>(theme.palette);
+  const [font, setFont] = useState(theme.fontFamily);
+  // What is saved changed under the editor (Claude set the theme, or another window did): show that.
+  const saved = JSON.stringify([theme.palette, theme.fontFamily]);
+  useEffect(() => {
+    setPalette(theme.palette);
+    setFont(theme.fontFamily);
+  }, [saved]);
+  const drawn = snap.scenes.filter((s) => ["rendered", "needs_review", "approved"].includes(s.status)).length;
+  const changed = JSON.stringify([palette, font.trim() || theme.fontFamily]) !== saved;
+  const scheme = schemes.find((s) => JSON.stringify(s.palette).toLowerCase() === JSON.stringify(palette).toLowerCase());
+  const valid = Object.values(palette).every((c) => /^#[0-9a-fA-F]{6}$/.test(c));
+
+  const save = () => {
+    if (drawn && !confirm(`${drawn} scene${drawn === 1 ? " is" : "s are"} already drawn in the current colours. They will be marked out of date; “Render all again” on the Scenes tab redraws them without a Claude run. Change the colours?`)) return;
+    void act(async () => {
+      await api.chooseColours(snap.project.slug, { palette, fontFamily: font.trim() || undefined });
+      setEditing(false);
+    }, "Colours changed");
+  };
+
+  if (!editing) {
+    return (
+      <>
+        <div className="swatches">
+          {Object.entries(theme.palette).map(([name, colour]) => (
+            <div key={name} className="swatch" title={`${use[name as keyof typeof use]}: ${colour}`}>
+              <span style={{ background: colour }} />
+              {name}
+            </div>
+          ))}
+        </div>
+        {snap.colours.warnings.map((w) => (
+          <p key={w} className="warn small">
+            {w}
+          </p>
+        ))}
+        <p className="muted small">
+          Font: {theme.fontFamily}. {theme.locked ? "You chose these colours and this font, so Claude keeps them." : "Claude chooses these when it writes the bible. Change them and it keeps yours."}
+        </p>
+        <div className="row">
+          <button className="btn" onClick={() => setEditing(true)}>
+            Change colours and font
+          </button>
+          {theme.locked && (
+            <button className="link" disabled={busy} onClick={() => act(() => api.chooseColours(snap.project.slug, { locked: false }), "Claude will choose the colours the next time it writes the bible")}>
+              Let Claude choose again
+            </button>
+          )}
+        </div>
+      </>
+    );
+  }
+  return (
+    <div className="colours">
+      <label className="small">
+        Scheme
+        <select value={scheme?.id ?? ""} onChange={(e) => setPalette(schemes.find((s) => s.id === e.target.value)?.palette ?? palette)}>
+          {!scheme && <option value="">Your own colours</option>}
+          {schemes.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="colour-grid">
+        {Object.entries(palette).map(([name, colour]) => (
+          <label key={name} className="small colour">
+            <span>
+              {name} <span className="muted">· {use[name as keyof typeof use]}</span>
+            </span>
+            <span className="row">
+              <input type="color" aria-label={`${name} colour`} value={/^#[0-9a-fA-F]{6}$/.test(colour) ? colour : "#000000"} onChange={(e) => setPalette({ ...palette, [name]: e.target.value.toUpperCase() })} />
+              <input type="text" aria-label={`${name} hex code`} value={colour} maxLength={7} spellCheck={false} onChange={(e) => setPalette({ ...palette, [name]: e.target.value.trim() })} />
+            </span>
+          </label>
+        ))}
+      </div>
+      <div className="colour-sample" style={{ background: palette.background, color: palette.text, fontFamily: `${JSON.stringify(font)}, Inter, sans-serif` }}>
+        <strong>How a title looks</strong>
+        <span className="colour-card" style={{ background: palette.surface }}>
+          A label on a card, with <span style={{ color: palette.primary }}>primary</span>, <span style={{ color: palette.secondary }}>secondary</span> and <span style={{ color: palette.accent }}>accent</span>
+        </span>
+      </div>
+      <label className="small">
+        Font
+        <input type="text" list="studio-fonts" value={font} onChange={(e) => setFont(e.target.value)} />
+        <datalist id="studio-fonts">
+          {fonts.map((f) => (
+            <option key={f} value={f} />
+          ))}
+        </datalist>
+        <span className="muted" style={{ fontWeight: 400 }}>
+          Any font installed on this computer works. Type its name as it appears in your font list.
+        </span>
+      </label>
+      {!valid && <p className="warn small">Each colour is a hex code such as #1A2B3C.</p>}
+      <div className="row">
+        <button className="btn btn-primary" disabled={busy || !changed || !valid} onClick={save}>
+          Save colours and font
+        </button>
+        <button
+          className="btn"
+          disabled={busy}
+          onClick={() => {
+            setPalette(theme.palette);
+            setFont(theme.fontFamily);
+            setEditing(false);
+          }}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
   );
 }
 

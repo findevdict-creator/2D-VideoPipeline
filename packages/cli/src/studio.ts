@@ -7,7 +7,7 @@ import { listChapters } from "@studio/core/studio/store/chapters";
 import { createProject, getProject, listProjects, projectPaths, updateProject } from "@studio/core/studio/store/projects";
 import { listRuns, readRunLog } from "@studio/core/studio/store/runs";
 import { Orchestrator } from "@studio/core/studio/workflow";
-import { deleteScene, findScene, getScene, listReviews, listScenes, listVersions, moveScene, rollbackScene, sceneLabel, setTheme } from "@studio/core/studio/store/scenes";
+import { chooseColours, type ColourChoice, deleteScene, findScene, getScene, listReviews, listScenes, listVersions, moveScene, rollbackScene, sceneLabel, setTheme } from "@studio/core/studio/store/scenes";
 import { compareVersions } from "@studio/core/studio/scenes/compare";
 import { EXPORT_FORMATS, exportFormat, exportVideo, listExports } from "@studio/core/studio/export";
 import { ensureVoice } from "@studio/core/studio/voice";
@@ -15,7 +15,7 @@ import { REFERENCE_ROLES } from "@studio/core/studio/model/asset";
 import type { ModelInfo } from "@studio/core/studio/assets/gltf";
 import { importAsset, listAssets, listProjectReferences, setProjectReference, setSceneReference } from "@studio/core/studio/store/assets";
 import { clock, referenceKeyframes } from "@studio/core/studio/assets/keyframes";
-import { LOOKS, MAX_DURATION_SEC, MIN_DURATION_SEC } from "@studio/core/studio/model/project";
+import { LOOKS, MAX_DURATION_SEC, MIN_DURATION_SEC, PALETTE_KEYS, PALETTE_USE, PALETTES } from "@studio/core/studio/model/project";
 import { assemble } from "@studio/core/studio/assemble";
 import { recommendLength } from "@studio/core/studio/length";
 import { gpuReport } from "@studio/core/studio/renderers/gpu";
@@ -45,6 +45,7 @@ Usage:
   npm run studio -- keyframes <project> <asset>      one frame of each shot of a reference video, and a contact sheet
   npm run studio -- reference <project> <scene> <asset>   attach a reference to one scene (--reference <role>, --at <seconds>, --note; "none" as the role removes it)
   npm run studio -- look <project> <clean|hand-drawn>     change the look; scenes already drawn are marked out of date
+  npm run studio -- colours <project> [scheme] [name=#hex ...] [font="Name"]   show or change the colours and font; "claude" lets Claude choose again
   npm run studio -- music <project> <asset|file|off>      choose the music (--volume under the voice, --pause-volume in pauses, --steady for no dipping)
   npm run studio -- sfx <project> <on|off>           play or leave out the sound effects scenes ask for
   npm run studio -- check <project> <scene>          report what would stop a scene from rendering
@@ -309,6 +310,35 @@ async function run(
     if (!(LOOKS as readonly string[]).includes(look)) throw new Error(`The look is one of: ${LOOKS.join(", ")}`);
     const stale = setTheme(studio, project.id, { ...project.settings.theme, look: look as (typeof LOOKS)[number] });
     console.log(`The look is now ${look}.${stale.length ? ` ${stale.length} scene(s) were drawn in the old one: npm run studio -- refresh ${project.slug}` : ""}`);
+    return;
+  }
+  if (command === "colours" || command === "colors") {
+    const project = getProject(studio, required(rest[0], "project"));
+    const show = (theme: typeof project.settings.theme) => {
+      for (const key of PALETTE_KEYS) console.log(`  ${key.padEnd(11)} ${theme.palette[key]}  ${PALETTE_USE[key]}`);
+      console.log(`  ${"font".padEnd(11)} ${theme.fontFamily}`);
+      console.log(theme.locked ? "  Chosen by you. Claude keeps these." : "  Chosen by Claude. It may change them when it writes the bible.");
+    };
+    const words = rest.slice(1);
+    if (!words.length) {
+      show(project.settings.theme);
+      console.log(`\nSchemes: ${PALETTES.map((p) => p.id).join(", ")}`);
+      console.log(`Change them: npm run studio -- colours ${project.slug} paper   or   npm run studio -- colours ${project.slug} primary=#FF6B00 font=Georgia`);
+      return;
+    }
+    const choice: ColourChoice = { palette: {} };
+    for (const word of words) {
+      const eq = word.indexOf("=");
+      if (eq < 0) {
+        if (word.toLowerCase() === "claude") choice.locked = false;
+        else choice.scheme = word;
+      } else if (word.slice(0, eq).toLowerCase() === "font") choice.fontFamily = word.slice(eq + 1);
+      else (choice.palette as Record<string, string>)[word.slice(0, eq).toLowerCase()] = word.slice(eq + 1);
+    }
+    const done = chooseColours(studio, project.id, choice);
+    show(done.theme);
+    for (const warning of done.warnings) console.log(`  Note: ${warning}`);
+    if (done.stale.length) console.log(`${done.stale.length} scene(s) were drawn in the old colours: npm run studio -- refresh ${project.slug}`);
     return;
   }
   if (command === "music") {
