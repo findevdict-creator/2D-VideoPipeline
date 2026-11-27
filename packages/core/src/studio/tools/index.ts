@@ -366,13 +366,21 @@ const tools: ToolDef<any>[] = [
   }),
   defineTool({
     name: "theme_set",
-    description: 'Set the look every scene shares: colours, font, style words, and whether lines are "clean" or "hand-drawn".',
+    description:
+      'Set the look every scene shares: colours, font, style words, and whether lines are "clean" or "hand-drawn". When the person has chosen the colours and font themselves, those are kept and the answer says what they are.',
     writers: ["bible"],
     input: z.object({ theme: ThemeSchema }),
     handler: (ctx, { theme }) => {
       scopeOf(ctx, ["bible"]);
-      const stale = setTheme(ctx.studio, ctx.projectId, theme);
-      return { saved: true, ...(stale.length ? { scenesNowStale: stale.length } : {}) };
+      const current = getProject(ctx.studio, ctx.projectId).settings.theme;
+      // The person's own colours and font outrank Claude's. Only they can lock or unlock them.
+      const kept = current.locked ? { palette: current.palette, fontFamily: current.fontFamily } : undefined;
+      const stale = setTheme(ctx.studio, ctx.projectId, { ...theme, ...kept, locked: current.locked });
+      return {
+        saved: true,
+        ...(kept ? { kept, note: "The person chose these colours and this font themselves, so they were kept instead of yours. Write the bible, the visual style and everything else around them." } : {}),
+        ...(stale.length ? { scenesNowStale: stale.length } : {}),
+      };
     },
   }),
   defineTool({

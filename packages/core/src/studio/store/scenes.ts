@@ -6,7 +6,7 @@ import { CODE_SCENE_TYPES, parseSpec, ScenePlanSchema, type ScenePlan, type Scen
 import type { Studio } from "../studio.js";
 import { getChapter, syncChapterStatus } from "./chapters.js";
 import { fromRow, fromRows } from "./mapping.js";
-import type { Theme } from "../model/project.js";
+import { PALETTE_KEYS, PALETTES, paletteWarnings, ThemeSchema, type Palette, type Theme } from "../model/project.js";
 import { getProject, projectPaths, updateProject, type Project } from "./projects.js";
 
 export interface Scene {
@@ -273,11 +273,47 @@ export function setSceneStatus(studio: Studio, sceneId: string, status: SceneSta
 export function setTheme(studio: Studio, projectId: string, theme: Theme): string[] {
   const before = getProject(studio, projectId).settings.theme;
   const after = updateProject(studio, projectId, { settings: { theme } }).settings.theme;
-  if (JSON.stringify(before) === JSON.stringify(after)) return [];
+  // Who chose the colours is not part of the picture.
+  if (JSON.stringify({ ...before, locked: false }) === JSON.stringify({ ...after, locked: false })) return [];
   const why = before.look !== after.look ? `The look changed to ${after.look === "hand-drawn" ? "hand-drawn" : "clean"}` : "The video's colours or font changed";
   const drawn = listScenes(studio, projectId).filter((s) => ["rendered", "needs_review", "approved"].includes(s.status));
   for (const scene of drawn) setSceneStatus(studio, scene.id, "stale", why);
   return drawn.map((s) => s.id);
+}
+
+export interface ColourChoice {
+  /** A ready-made scheme by id or name. Single colours given with it are laid over it. */
+  scheme?: string;
+  /** Some or all of the six colours, as hex. */
+  palette?: Partial<Palette>;
+  fontFamily?: string;
+  /** False hands the choice back to Claude: the next bible run may pick new colours. */
+  locked?: boolean;
+}
+
+/**
+ * The person choosing the video's colours or font themselves. The choice is locked, so
+ * Claude keeps it when it writes or revises the bible. Returns the scenes now out of date
+ * and anything about the colours that is hard to read.
+ */
+export function chooseColours(studio: Studio, projectId: string, choice: ColourChoice): { theme: Theme; stale: string[]; warnings: string[] } {
+  const current = getProject(studio, projectId).settings.theme;
+  let palette: Palette = current.palette;
+  if (choice.scheme) {
+    const wanted = choice.scheme.trim().toLowerCase();
+    const found = PALETTES.find((p) => p.id === wanted || p.name.toLowerCase() === wanted);
+    if (!found) throw new Error(`There is no colour scheme called "${choice.scheme}". The schemes are: ${PALETTES.map((p) => p.id).join(", ")}.`);
+    palette = found.palette;
+  }
+  const own = Object.fromEntries(Object.entries(choice.palette ?? {}).filter(([, v]) => v !== undefined));
+  for (const key of Object.keys(own)) if (!(PALETTE_KEYS as readonly string[]).includes(key)) throw new Error(`"${key}" is not one of the colours. They are: ${PALETTE_KEYS.join(", ")}.`);
+  const fontFamily = choice.fontFamily?.trim() || current.fontFamily;
+  const changesLook = Boolean(choice.scheme) || Object.keys(own).length > 0 || choice.fontFamily !== undefined;
+  const parsed = ThemeSchema.safeParse({ ...current, palette: { ...palette, ...own }, fontFamily, locked: choice.locked ?? (changesLook ? true : current.locked) });
+  if (!parsed.success) throw new Error(parsed.error.issues.map((i) => `${String(i.path.at(-1) ?? "colour")}: ${i.message}`).join(". "));
+  const theme = { ...parsed.data, palette: Object.fromEntries(Object.entries(parsed.data.palette).map(([k, v]) => [k, v.toUpperCase()])) as Palette };
+  const stale = setTheme(studio, projectId, theme);
+  return { theme, stale, warnings: paletteWarnings(theme.palette) };
 }
 
 /** Change a planned scene's idea, narration or type before any work has gone into it. */

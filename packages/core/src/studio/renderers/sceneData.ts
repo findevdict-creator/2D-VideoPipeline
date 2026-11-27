@@ -88,7 +88,7 @@ export function buildSceneData(
     fps,
     width: project.width,
     height: project.height,
-    style: project.settings.theme,
+    style: drawnTheme(project.settings.theme),
     transitionFrames: Math.round(rc.transitionSec * fps),
     captionSafeArea: captionsOn && rc.captions.position === "bottom" ? (rc.captions.fontSize * 2.6 + project.height * 0.05) / project.height : 0,
     scenes: [sceneData],
@@ -172,4 +172,10 @@ export function fitFootage(
 function footageData(studio: Studio, spec: Extract<SceneSpec, { type: "footage" }>, durationInFrames: number, fps: number): FootageData {
   const asset = getAsset(studio, spec.footage.assetId);
   return { src: asset.path, objectFit: spec.footage.objectFit, ...fitFootage(spec.footage, asset.durationSec, durationInFrames, fps) };
+}
+
+/** The part of the theme that reaches the picture. Who chose it does not, so locking the colours re-renders nothing. */
+export function drawnTheme(theme: Project["settings"]["theme"]): Omit<Project["settings"]["theme"], "locked"> {
+  const { locked: _locked, ...drawn } = theme;
+  return drawn;
 }

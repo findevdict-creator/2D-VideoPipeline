@@ -4,6 +4,59 @@ const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, "must be a hex colour lik
 
 export const LOOKS = ["clean", "hand-drawn"] as const;
 
+/** The six colours of a video, and what each is for. */
+export const PALETTE_KEYS = ["background", "surface", "primary", "secondary", "accent", "text"] as const;
+export type PaletteKey = (typeof PALETTE_KEYS)[number];
+export type Palette = Record<PaletteKey, string>;
+export const PALETTE_USE: Record<PaletteKey, string> = {
+  background: "Behind everything",
+  surface: "Cards and panels",
+  primary: "The main colour of what is drawn",
+  secondary: "A second colour, for contrast with the main one",
+  accent: "Highlights, and the word being spoken",
+  text: "Titles and labels",
+};
+
+/** Ready-made colour schemes, each with strong contrast between text and background. */
+export const PALETTES: { id: string; name: string; palette: Palette }[] = [
+  { id: "midnight", name: "Midnight", palette: { background: "#0F172A", surface: "#1E293B", primary: "#38BDF8", secondary: "#A78BFA", accent: "#FBBF24", text: "#F8FAFC" } },
+  { id: "paper", name: "Paper", palette: { background: "#FAF7F0", surface: "#FFFFFF", primary: "#2563EB", secondary: "#0F766E", accent: "#DC2626", text: "#1F2937" } },
+  { id: "chalkboard", name: "Chalkboard", palette: { background: "#1F3A2E", surface: "#2A4D3D", primary: "#FDE68A", secondary: "#93C5FD", accent: "#FCA5A5", text: "#F7F7F2" } },
+  { id: "sunset", name: "Sunset", palette: { background: "#2B1330", surface: "#45203F", primary: "#FF8A5B", secondary: "#F9C74F", accent: "#FF4D8D", text: "#FFF5EC" } },
+  { id: "forest", name: "Forest", palette: { background: "#0E2A20", surface: "#173D2F", primary: "#6EE7B7", secondary: "#FCD34D", accent: "#FB923C", text: "#F0FDF4" } },
+  { id: "mono", name: "Black and white", palette: { background: "#0A0A0A", surface: "#1C1C1C", primary: "#FFFFFF", secondary: "#A3A3A3", accent: "#FACC15", text: "#FAFAFA" } },
+  { id: "pastel", name: "Pastel", palette: { background: "#FDF2F8", surface: "#FFFFFF", primary: "#7C3AED", secondary: "#DB2777", accent: "#0891B2", text: "#312E81" } },
+  { id: "blueprint", name: "Blueprint", palette: { background: "#0B3C8C", surface: "#1450B4", primary: "#FFFFFF", secondary: "#9AD1FF", accent: "#FFD166", text: "#F4F9FF" } },
+];
+
+/** Fonts offered in the list. Any font installed on the computer that renders can be typed instead. */
+export const FONTS = ["Inter", "Arial", "Segoe UI", "Verdana", "Trebuchet MS", "Georgia", "Times New Roman", "Courier New", "Comic Sans MS", "Impact"];
+
+/**
+ * How well two colours can be told apart, from 1 (the same) to 21 (black on white), as
+ * WCAG defines it. Text needs about 4.5 against what is behind it.
+ */
+export function contrast(a: string, b: string): number {
+  const light = (hex: string) => {
+    const [r, g, bl] = [1, 3, 5].map((i) => {
+      const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+      return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    }) as [number, number, number];
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  const [hi, lo] = [light(a), light(b)].sort((x, y) => y - x) as [number, number];
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/** What is hard to read in a palette, in plain sentences. Empty when it is fine. */
+export function paletteWarnings(p: Palette): string[] {
+  const out: string[] = [];
+  if (contrast(p.text, p.background) < 4.5) out.push("The text colour is hard to read on the background.");
+  if (contrast(p.text, p.surface) < 3) out.push("The text colour is hard to read on cards and panels.");
+  for (const key of ["primary", "secondary", "accent"] as const) if (contrast(p[key], p.background) < 2) out.push(`The ${key} colour barely stands out from the background.`);
+  return out;
+}
+
 /** The look every scene shares. Scenes read it through useTheme(). */
 export const ThemeSchema = z.object({
   visualStyle: z.string().default("Clean flat vector explainer with soft shapes and clear labels"),
@@ -28,6 +81,8 @@ export const ThemeSchema = z.object({
   iconStyle: z.string().default("Rounded line icons, 2px stroke"),
   /** "hand-drawn" gives everything scenes draw a slight wobble that changes a few times a second. Real footage and Manim scenes keep their own look. */
   look: z.enum(LOOKS).default("clean"),
+  /** True once the person has chosen the colours or the font themselves. Claude then keeps both and writes the bible around them. */
+  locked: z.boolean().default(false),
 });
 export type Theme = z.infer<typeof ThemeSchema>;
 

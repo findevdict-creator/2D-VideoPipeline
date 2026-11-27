@@ -5,6 +5,7 @@ import { referenceKeyframes } from "@studio/core/studio/assets/keyframes";
 import { findAsset, listAssets, listProjectReferences, listSceneReferences } from "@studio/core/studio/store/assets";
 import { listChapters } from "@studio/core/studio/store/chapters";
 import { listDocuments, readDocument } from "@studio/core/studio/store/documents";
+import { FONTS, PALETTE_USE, PALETTES, paletteWarnings } from "@studio/core/studio/model/project";
 import { getProject, listProjects, projectPaths, type Project } from "@studio/core/studio/store/projects";
 import { listRuns } from "@studio/core/studio/store/runs";
 import { getScene, listReviews, listScenes, listVersions, readSource, sceneLabel, sceneNarration, versionByNumber, versionPaths, type Scene, type SceneVersion } from "@studio/core/studio/store/scenes";
@@ -171,6 +172,8 @@ export function projectSnapshot(studio: Studio, orchestrator: Orchestrator, idOr
     stage: orchestrator.stageStatus(project.id),
     /** Set while work is on hold for Claude's usage limit. */
     usage: orchestrator.usagePause(),
+    /** What the look editor offers: ready-made colour schemes, fonts, and what each colour is for. */
+    colours: { schemes: PALETTES, fonts: FONTS, use: PALETTE_USE, warnings: paletteWarnings(project.settings.theme.palette) },
     sceneTypes: availableSceneTypes(studio).map((t) => ({ type: t, about: SCENE_TYPE_GUIDE[t] })),
     /** Scene types this machine cannot build until something is installed. */
     missingSceneTypes: unavailableSceneTypes(studio).map((t) => ({ ...t, about: SCENE_TYPE_GUIDE[t.type] })),

@@ -33,6 +33,8 @@ export const api = {
   recommendLength: (description: string) => request<{ seconds: number; reason: string }>("POST", "/api/recommend-length", { description }),
   createProject: (input: { description: string; title?: string; targetDurationSec: number; aspect: string }) => request<{ slug: string }>("POST", "/api/projects", input),
   project: (slug: string) => request<Snapshot>("GET", `/api/projects/${encodeURIComponent(slug)}`),
+  chooseColours: (slug: string, choice: { scheme?: string; palette?: Record<string, string>; fontFamily?: string; locked?: boolean }) =>
+    request<{ scenesNowStale: number; warnings: string[] }>("POST", `/api/projects/${encodeURIComponent(slug)}/colours`, choice),
   updateSettings: (slug: string, settings: { sceneTypes?: string[]; captions?: boolean; theme?: { look?: string }; music?: Record<string, unknown>; sfx?: Record<string, unknown> }) => request("PATCH", `/api/projects/${encodeURIComponent(slug)}`, { settings }),
   startStage: (slug: string, notes?: string) => request("POST", `/api/projects/${encodeURIComponent(slug)}/stage/start`, { notes }),
   approveStage: (slug: string) => request<{ stage: Stage }>("POST", `/api/projects/${encodeURIComponent(slug)}/stage/approve`, {}),
