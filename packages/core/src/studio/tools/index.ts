@@ -38,6 +38,7 @@ import {
 } from "../store/scenes.js";
 import { characterInfo, findShared, listShared, planShared, readShared, requestShared, saveShared, setSharedPreview, SHARED_KINDS, SHARED_NAME, type SharedAsset } from "../store/shared.js";
 import { cueFrames, ensureVoice } from "../voice.js";
+import { generatedInfo, generateImage, IMAGE_ASPECTS, imageStatus } from "../images.js";
 import { defineTool, ToolRefusal, type ToolContext, type ToolDef } from "./types.js";
 
 export { ToolRefusal, type ToolContext, type ToolDef, type ToolOutput } from "./types.js";
@@ -110,6 +111,22 @@ function sceneOf(ctx: ToolContext, sceneId: string | undefined, write: boolean):
   return scene;
 }
 
+/** Whether a run may make images for this video, and how, as project_get tells it. */
+function imageGuide(studio: ToolContext["studio"], projectId: string) {
+  const s = imageStatus(studio, projectId);
+  if (!s.enabled) return { allowed: false, note: "The person has not allowed AI-generated images for this video. Do not plan scenes that need a picture nobody has; use the project's own images, or draw in code." };
+  if (!s.ready) return { allowed: false, note: "Generated images are allowed for this video, but no key is set up yet, so none can be made." };
+  const left = Math.max(0, s.limit - s.madeByClaude);
+  return {
+    allowed: left > 0,
+    left,
+    note:
+      left > 0
+        ? `The person allowed AI-generated images for this video. image_generate makes one and puts it under the assets; ${left} more can be made. Each costs the person money, so make one only where a picture does what drawing in code cannot: a photograph, a painting, a place, a texture.`
+        : "The limit on generated images for this video is reached. Use the images there are.",
+  };
+}
+
 const sceneId = z.string().optional().describe("Leave out in a scene run: it means your own scene");
 
 const tools: ToolDef<any>[] = [
@@ -133,6 +150,7 @@ const tools: ToolDef<any>[] = [
         audience: project.settings.audience,
         theme: project.settings.theme,
         sceneTypes: Object.fromEntries(types.map((t) => [t, SCENE_TYPE_GUIDE[t]])),
+        generatedImages: imageGuide(studio, project.id),
         references: listProjectReferences(studio, project.id).map((r) => ({
           ...r,
           label: assets.get(r.assetId)?.label,
@@ -252,6 +270,7 @@ const tools: ToolDef<any>[] = [
           height: a.height,
           durationSec: a.durationSec,
           note: a.sourceNote,
+          ...(generatedInfo(a) ? { generated: { prompt: generatedInfo(a)!.prompt, by: generatedInfo(a)!.by } } : {}),
           reference: refs.get(a.id) ? { role: refs.get(a.id)!.role, note: refs.get(a.id)!.note } : null,
           ...(a.meta.model ? { model: modelSummary(a.meta.model as ModelInfo) } : {}),
         })),
@@ -464,6 +483,44 @@ const tools: ToolDef<any>[] = [
           ? `${input.name}: every pose and every expression. Check that each one reads clearly, that they are plainly the same character, and that it matches the brief.`
           : `${input.name}: its Demo, two seconds in. Check that it is drawn as the brief says.`;
       return { ...saved, images: [{ file: preview, caption }] };
+    },
+  }),
+  defineTool({
+    name: "image_generate",
+    description:
+      "Make a picture with an AI image model and add it to the project's assets, for an illustration scene. Only works when project_get says generatedImages.allowed. Returns the new asset's id and the picture: look at it, and if it is wrong, make it again with replaceAssetId and a better prompt instead of making a second one.",
+    writers: ["chapter", "scene"],
+    input: z.object({
+      prompt: z
+        .string()
+        .min(20)
+        .max(2000)
+        .describe("What the picture shows, as a full description: the subject, the setting, the style (take it from the bible, so the images of one video match), the light and the framing. Ask for no text, letters or labels in the picture: the scene adds those on top"),
+      label: z.string().min(2).max(60).describe("A short name for it under Assets"),
+      aspect: z.enum(IMAGE_ASPECTS).optional().describe("Its shape. Left out: the video's own"),
+      referenceAssetIds: z.array(z.string()).max(3).optional().describe("Up to three image assets to keep it in line with, for example an earlier generated image whose style it should share"),
+      replaceAssetId: z.string().optional().describe("A generated image to make again. It keeps its id, so scenes that use it follow"),
+    }),
+    handler: async (ctx, input) => {
+      scopeOf(ctx, ["chapter", "scene"]);
+      const guide = imageGuide(ctx.studio, ctx.projectId);
+      if (!guide.allowed) throw new ToolRefusal(guide.note);
+      let made: Awaited<ReturnType<typeof generateImage>>;
+      try {
+        made = await generateImage(ctx.studio, ctx.projectId, { ...input, by: "claude" });
+      } catch (err) {
+        throw new ToolRefusal((err as Error).message);
+      }
+      const { asset } = made;
+      const file = projectPaths(ctx.studio, getProject(ctx.studio, ctx.projectId)).abs(asset.path);
+      return {
+        assetId: asset.id,
+        label: asset.label,
+        width: asset.width,
+        height: asset.height,
+        left: imageGuide(ctx.studio, ctx.projectId).left ?? 0,
+        images: [{ file, caption: `${asset.label}, as generated. Check that it shows what the scene needs and holds no garbled text.` }],
+      };
     },
   }),
   defineTool({

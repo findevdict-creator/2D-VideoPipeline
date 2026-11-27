@@ -119,6 +119,8 @@ export const ProjectSettingsSchema = z.object({
     .prefault({}),
   /** Sound effects: the ones scenes name in their specs. Switching them off keeps them in the specs and leaves them out of the sound. */
   sfx: z.object({ enabled: z.boolean().default(true), volume: z.number().min(0).max(2).default(1) }).prefault({}),
+  /** AI-generated images. Off unless the person allows it for this video, because each image costs money. */
+  images: z.object({ enabled: z.boolean().default(false) }).prefault({}),
   /** Which scene types the planner may choose from. Types this machine cannot build are left out when it asks. */
   sceneTypes: z.array(z.string()).default(["remotion-2d", "r3f", "manim", "illustration", "footage"]),
 });

@@ -19,6 +19,7 @@ import type { ModelInfo } from "@studio/core/studio/assets/gltf";
 import { getChapter } from "@studio/core/studio/store/chapters";
 import { createProject, getProject, updateProject } from "@studio/core/studio/store/projects";
 import { previewVoice, setVoice } from "@studio/core/studio/voices";
+import { generateImage, saveImageKey, setImagesEnabled } from "@studio/core/studio/images";
 import { saveYouTubeDetails, writeYouTubeDetails } from "@studio/core/studio/youtube";
 import { getRun, readRunLog } from "@studio/core/studio/store/runs";
 import { chooseColours, deleteScene, getScene, moveScene, rollbackScene, setTheme, updatePlan } from "@studio/core/studio/store/scenes";
@@ -303,6 +304,40 @@ export async function startServer(studio: Studio, opts: { port?: number; orchest
       studio.emit("asset.changed", { projectId: asset.projectId, targetId: asset.id });
     }
     return { ok: true };
+  });
+  // ---------- Generated images ----------
+  route("POST", "/api/projects/:project/images", ({ params, body }) => {
+    if (typeof body?.enabled !== "boolean") throw new Refused("Say whether generated images are allowed: enabled true or false.");
+    setImagesEnabled(studio, getProject(studio, params.project!).id, body.enabled);
+    return { ok: true, enabled: body.enabled };
+  });
+  route("POST", "/api/projects/:project/images/generate", async ({ params, body }) => {
+    const project = getProject(studio, params.project!);
+    try {
+      const { asset } = await generateImage(studio, project.id, { prompt: String(body?.prompt ?? ""), label: typeof body?.label === "string" ? body.label : undefined, aspect: typeof body?.aspect === "string" ? body.aspect : undefined, by: "you" });
+      return { id: asset.id };
+    } catch (err) {
+      throw new Refused((err as Error).message);
+    }
+  });
+  route("POST", "/api/assets/:asset/regenerate", async ({ params, body }) => {
+    const asset = getAsset(studio, params.asset!);
+    const before = asset.meta.generated as { prompt?: string; aspect?: string } | undefined;
+    try {
+      const made = await generateImage(studio, asset.projectId, { prompt: String(body?.prompt ?? before?.prompt ?? ""), aspect: before?.aspect, replaceAssetId: asset.id, by: "you" });
+      return { id: made.asset.id, scenesNowStale: made.stale.length };
+    } catch (err) {
+      throw new Refused((err as Error).message);
+    }
+  });
+  /** The key is written to the workspace and never sent back. */
+  route("POST", "/api/image-key", ({ body }) => {
+    try {
+      saveImageKey(studio, String(body?.key ?? ""));
+      return { ok: true };
+    } catch (err) {
+      throw new Refused((err as Error).message);
+    }
   });
   route("GET", "/api/assets/:asset/keyframes", ({ params, url }) => assetKeyframes(studio, params.asset!, Number(url.searchParams.get("max")) || undefined));
   route("DELETE", "/api/assets/:asset", ({ params }) => {

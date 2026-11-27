@@ -7,6 +7,7 @@ import { listChapters } from "@studio/core/studio/store/chapters";
 import { listDocuments, readDocument } from "@studio/core/studio/store/documents";
 import { getThumbnail } from "@studio/core/studio/thumbnail";
 import { PACES, VOICES } from "@studio/core/studio/voices";
+import { generatedInfo, IMAGE_ASPECTS, imageStatus } from "@studio/core/studio/images";
 import { getYouTubeDetails } from "@studio/core/studio/youtube";
 import { FONTS, PALETTE_USE, PALETTES, paletteWarnings } from "@studio/core/studio/model/project";
 import { getProject, listProjects, projectPaths, type Project } from "@studio/core/studio/store/projects";
@@ -179,6 +180,8 @@ export function projectSnapshot(studio: Studio, orchestrator: Orchestrator, idOr
     thumbnail: thumbnailView(studio, project),
     /** The title, description and tags for uploading, once written. */
     youtube: getYouTubeDetails(studio, project.id) ?? null,
+    /** AI-generated images: whether this video allows them, and whether one can be made now. Never the key itself. */
+    images: { ...imageStatus(studio, project.id), aspects: IMAGE_ASPECTS },
     /** Who can narrate. */
     voices: { list: VOICES, paces: PACES, silent: studio.config.voice.engine === "mock" },
     /** What the look editor offers: ready-made colour schemes, fonts, and what each colour is for. */
@@ -211,6 +214,8 @@ export function projectSnapshot(studio: Studio, orchestrator: Orchestrator, idOr
         previewUrl: thumb ? fileUrl(studio, project, projectPaths(studio, project).rel(thumb)) : null,
         model: (a.meta.model as ModelInfo | undefined) ?? null,
         reference: refs.get(a.id) ?? null,
+        /** For an image an AI model made: what it was asked for. */
+        generated: generatedInfo(a) ?? null,
       };
     }),
     runs: listRuns(studio, project.id, { limit: 60 }),

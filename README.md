@@ -111,6 +111,40 @@ Any image or clip can also be marked as a **reference** for style, layout or mot
 - **For one scene**, open the scene and attach it under "References for this scene". For a video you pick the moment to follow from one frame of each shot. The scene's builder is shown that frame first, and the scene drawer then shows the reference next to what was built, so you can judge whether the composition was followed.
 - **Reference videos are read shot by shot.** The studio finds the cuts, takes the calmest frame of each shot and lays them out on a contact sheet with their times ("Show one frame of each shot" on the asset, or `npm run studio -- keyframes <project> <asset>`). Claude looks at the sheet and at single frames instead of guessing from a video's first picture.
 
+### AI-generated images
+
+The studio can make pictures with Google's Gemini image models (known as Nano Banana), for things code cannot draw: a photograph, a painting, a place, a texture. It is **off for every video until you switch it on** under **Assets → AI images → Allow AI-generated images in this video**, because each image is charged to your Google key.
+
+1. Get a key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Image models need billing enabled on the key's Google project.
+2. Tick the switch under Assets and paste the key. It is kept in `keys.json` in your projects folder, not in the repository, and is sent only to Google. Setting `GEMINI_API_KEY` before starting the studio works too. The key is asked for once, not per video.
+
+With the switch on:
+
+- **You** can type a description under Assets and press Generate. The image appears with your other files.
+- **Claude** may make an image when it plans a chapter or builds an image scene, and uses it in an `illustration` scene with a camera move and labels on top. It is told to do so sparingly, and can make at most 30 per video (`studio.images.maxPerProject`).
+- Every generated image shows what it was made from. **Generate again** takes an edited description and replaces the picture; scenes that use it are marked out of date, and "Render all again" redraws them without a Claude run. Remove deletes it.
+
+With the switch off, Claude is told not to plan pictures nobody has, and the tool refuses.
+
+```bash
+npm run studio -- images <project> on                 # allow them for this video; "off" forbids them
+npm run studio -- image-key <key>                     # keep the key in the workspace
+npm run studio -- image <project> "A watercolour of a lighthouse at dusk, no text" --label Lighthouse
+npm run studio -- image <project> "The same, seen from the sea" --again <asset id>
+```
+
+Settings, under `studio.images` in `pipeline.config.json`:
+
+| Setting | Default | What it does |
+|---|---|---|
+| `model` | `gemini-nano-banana-2.1` | The image model's id in the Gemini API. `gemini-3-pro-image` is the premium one, `gemini-3.1-flash-lite-image` the cheapest |
+| `api` | `interactions` | Google's request style. Set `generateContent` if a model only answers to the older one |
+| `size` | (the model's, 1K) | `1K`, `2K` or `4K` |
+| `maxPerProject` | `30` | The most images Claude may make for one video. Yours are not counted |
+| `engine` | `gemini` | `mock` makes plain coloured placeholders and calls nobody. The stand-in runner uses it |
+
+Generated images carry Google's invisible SynthID watermark.
+
 ### Characters
 
 A character that appears in more than one scene is a shared part of its own kind. It is built once, at the Shared parts stage, with [`defineCharacter`](packages/lib/README.md#characters-studio): a fixed drawing size, fixed colours, and a written-out list of poses and expressions. Its preview is a sheet of every pose and every expression, which is what you approve.
@@ -315,6 +349,7 @@ npm run studio -- exports <project>
 npm run studio -- thumbnail <project>                 # Claude designs a thumbnail; --notes to ask for changes
 npm run studio -- youtube <project>                   # title, description and tags for the upload
 npm run studio -- voice <project> bm_george           # the narrator; add slow, normal or fast
+npm run studio -- images <project> on                 # allow AI-generated images for this video
 npm run studio -- asset add <project> photo.png --reference style --note "the colours, not the people"
 npm run studio -- keyframes <project> rival.mp4      # one frame of each shot, and a contact sheet
 npm run studio -- reference <project> 1.3 rival.mp4 --reference layout --at 12.5 --note "the split screen"

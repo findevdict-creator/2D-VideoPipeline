@@ -895,6 +895,7 @@ function AssetsTab({ snap, slug }: { snap: Snapshot; slug: string }) {
     }, "Added");
   return (
     <>
+      <GeneratedImages snap={snap} slug={slug} />
       <div
         className={`drop ${over ? "drop-over" : ""}`}
         onDragOver={(e) => (e.preventDefault(), setOver(true))}
@@ -926,7 +927,89 @@ function AssetsTab({ snap, slug }: { snap: Snapshot; slug: string }) {
   );
 }
 
+/** The switch that allows AI-generated images for this video, the key, and a box to ask for one. */
+function GeneratedImages({ snap, slug }: { snap: Snapshot; slug: string }) {
+  const [busy, act] = useAction();
+  const im = snap.images;
+  const [prompt, setPrompt] = useState("");
+  const [label, setLabel] = useState("");
+  const [aspect, setAspect] = useState<string>(snap.project.aspect);
+  const [key, setKey] = useState("");
+  const [editKey, setEditKey] = useState(false);
+  const needsKey = im.engine !== "mock" && !im.keyFrom;
+  return (
+    <section className="card">
+      <h3>AI images</h3>
+      <label className="check">
+        <input type="checkbox" checked={im.enabled} disabled={busy} onChange={(e) => act(() => api.allowImages(slug, e.target.checked), e.target.checked ? "Generated images are allowed for this video" : "Generated images are off for this video")} />
+        Allow AI-generated images in this video
+      </label>
+      <p className="muted small">
+        Off: Claude draws everything in code and uses only the files you add. On: Claude may also make pictures with Google's image model ({im.model}) for image scenes, and you can ask for one here. Each image
+        is charged to your Google key. Claude has made {im.madeByClaude} of at most {im.limit} for this video.
+      </p>
+      {im.engine === "mock" && <p className="notice small">The stand-in image engine is in use, so pictures are plain coloured placeholders and nothing is charged.</p>}
+      {im.enabled && (needsKey || editKey) && (
+        <div className="row wrap">
+          <label className="grow">
+            Google AI Studio key
+            <input type="password" value={key} placeholder="Paste the key from aistudio.google.com/apikey" autoComplete="off" onChange={(e) => setKey(e.target.value)} />
+          </label>
+          <button className="btn primary" disabled={busy || !key.trim()} onClick={() => act(async () => (await api.saveImageKey(key), setKey(""), setEditKey(false)), "Key saved")}>
+            Save key
+          </button>
+        </div>
+      )}
+      {im.enabled && needsKey && <p className="muted small">The key is kept in your projects folder on this computer, not in the repository, and is sent only to Google.</p>}
+      {im.enabled && !needsKey && im.engine !== "mock" && !editKey && (
+        <p className="muted small">
+          A key is set{im.keyFrom === "environment" ? " (GEMINI_API_KEY)" : im.keyFrom === "config" ? " (pipeline.config.json)" : ""}.{" "}
+          {im.keyFrom === "studio" && (
+            <>
+              <button className="link" onClick={() => setEditKey(true)}>
+                Change it
+              </button>{" "}
+              ·{" "}
+              <button className="link danger" disabled={busy} onClick={() => confirm("Forget the key?") && act(() => api.saveImageKey(""), "Key removed")}>
+                Forget it
+              </button>
+            </>
+          )}
+        </p>
+      )}
+      {im.ready && (
+        <>
+          <label>
+            Make an image
+            <textarea rows={3} value={prompt} placeholder="Describe the picture: the subject, the setting, the style and the light. For example: a watercolour of a lighthouse on a cliff at dusk, soft warm light, no text" onChange={(e) => setPrompt(e.target.value)} />
+          </label>
+          <div className="row wrap">
+            <label>
+              Name
+              <input value={label} placeholder="optional" maxLength={60} onChange={(e) => setLabel(e.target.value)} />
+            </label>
+            <label>
+              Shape
+              <select value={aspect} onChange={(e) => setAspect(e.target.value)}>
+                {im.aspects.map((a) => (
+                  <option key={a} value={a}>
+                    {a}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button className="btn primary" disabled={busy || prompt.trim().length < 10} onClick={() => act(async () => (await api.generateImage(slug, { prompt, label: label || undefined, aspect }), setPrompt(""), setLabel("")), "Image added below")}>
+              {busy ? "Generating…" : "Generate"}
+            </button>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 function AssetCard({ asset }: { asset: Asset }) {
+  const [again, setAgain] = useState<string | null>(null);
   const [busy, act] = useAction();
   const [note, setNote] = useState(asset.reference?.note ?? "");
   const role = asset.reference?.role ?? "";
@@ -978,6 +1061,40 @@ function AssetCard({ asset }: { asset: Asset }) {
             {busy ? "Finding the shots…" : "Show one frame of each shot"}
           </button>
         ))}
+      {asset.generated && (
+        <>
+          <p className="muted small" title={asset.generated.prompt}>
+            Generated {asset.generated.by === "claude" ? "by Claude" : "by you"}: {asset.generated.prompt.length > 140 ? `${asset.generated.prompt.slice(0, 140)}…` : asset.generated.prompt}
+          </p>
+          {again === null ? (
+            <button className="link small" disabled={busy} onClick={() => setAgain(asset.generated!.prompt)}>
+              Generate again
+            </button>
+          ) : (
+            <>
+              <textarea className="small" rows={4} value={again} onChange={(e) => setAgain(e.target.value)} />
+              <div className="row">
+                <button
+                  className="btn small"
+                  disabled={busy || again.trim().length < 10}
+                  onClick={() =>
+                    act(async () => {
+                      const r = await api.regenerateImage(asset.id, again);
+                      setAgain(null);
+                      return r;
+                    }, "Generated again. Scenes that use it are marked out of date")
+                  }
+                >
+                  {busy ? "Generating…" : "Generate"}
+                </button>
+                <button className="link small" disabled={busy} onClick={() => setAgain(null)}>
+                  Cancel
+                </button>
+              </div>
+            </>
+          )}
+        </>
+      )}
       {canBeReference && (
         <label className="small">
           Use as a reference for the whole video:

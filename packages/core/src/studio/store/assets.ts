@@ -130,6 +130,24 @@ export function updateAsset(studio: Studio, id: string, patch: Partial<Pick<Asse
   return getAsset(studio, id);
 }
 
+/**
+ * Put a new file behind an asset and keep its id, so the scenes that use it show the new
+ * picture. The old file is removed. Returns the asset as it is now.
+ */
+export async function replaceAssetFile(studio: Studio, id: string, file: string, meta: Record<string, unknown> = {}): Promise<Asset> {
+  const a = getAsset(studio, id);
+  const p = projectPaths(studio, getProject(studio, a.projectId));
+  const sha256 = await hashFile(file);
+  const target = path.join(p.assets, `${sha256.slice(0, 24)}${path.extname(file).toLowerCase()}`);
+  fs.mkdirSync(p.assets, { recursive: true });
+  fs.copyFileSync(file, target);
+  const size = imageSize(target);
+  studio.db.run("UPDATE assets SET path = ?, sha256 = ?, width = ?, height = ?, meta_json = ? WHERE id = ?", [p.rel(target), sha256, size?.width ?? null, size?.height ?? null, JSON.stringify({ ...a.meta, ...meta }), id]);
+  if (p.abs(a.path) !== target) fs.rmSync(p.abs(a.path), { force: true });
+  studio.emit("asset.changed", { projectId: a.projectId, targetId: id });
+  return getAsset(studio, id);
+}
+
 /** Scenes whose current spec uses this asset. */
 export function assetUsage(studio: Studio, assetId: string): string[] {
   return studio.db

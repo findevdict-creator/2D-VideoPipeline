@@ -21,6 +21,7 @@ import { clock, referenceKeyframes } from "@studio/core/studio/assets/keyframes"
 import { LOOKS, MAX_DURATION_SEC, MIN_DURATION_SEC, PALETTE_KEYS, PALETTE_USE, PALETTES } from "@studio/core/studio/model/project";
 import { assemble } from "@studio/core/studio/assemble";
 import { recommendLength } from "@studio/core/studio/length";
+import { generateImage, imageStatus, saveImageKey, setImagesEnabled } from "@studio/core/studio/images";
 import { gpuReport } from "@studio/core/studio/renderers/gpu";
 import { checkScene, renderSceneClip, renderSceneStills } from "@studio/core/studio/scenes/render";
 
@@ -62,6 +63,9 @@ Usage:
   npm run studio -- voice <project> [voice] [slow|normal|fast]   show the voices, or choose who narrates and how fast
   npm run studio -- thumbnail <project>              have Claude design the thumbnail (--notes to ask for changes)
   npm run studio -- youtube <project>                have Claude write the title, description and tags for uploading (--notes)
+  npm run studio -- images <project> [on|off]        allow or forbid AI-generated images for one video (off unless you switch it on)
+  npm run studio -- image <project> "<prompt>"       generate an image into the project's assets (--label; --again <asset id> to make that one again)
+  npm run studio -- image-key <key>                  keep your Google AI Studio key in the workspace ("" forgets it)
   npm run studio -- subtitles <project> <on|off>     show or hide the subtitles drawn in the video (the .srt file is always written)
   npm run studio -- exports <project>                list what was exported
 
@@ -106,6 +110,7 @@ async function main() {
       port: { type: "string" },
       "no-open": { type: "boolean", default: false },
       reference: { type: "string" },
+      again: { type: "string" },
       note: { type: "string" },
       at: { type: "string" },
       volume: { type: "string" },
@@ -137,7 +142,7 @@ async function run(
   studio: Studio,
   command: string,
   rest: string[],
-  flags: { final: boolean; yes?: boolean; chapter?: string; label?: string; reference?: string; note?: string; minutes?: string; seconds?: string; title?: string; notes?: string; at?: string; volume?: string; "pause-volume"?: string; steady?: boolean; format?: string; zoom?: string; fit?: string; subtitles?: string },
+  flags: { final: boolean; yes?: boolean; chapter?: string; label?: string; reference?: string; again?: string; note?: string; minutes?: string; seconds?: string; title?: string; notes?: string; at?: string; volume?: string; "pause-volume"?: string; steady?: boolean; format?: string; zoom?: string; fit?: string; subtitles?: string },
 ) {
   const log = (message: string) => console.log(message);
   const quality = flags.final ? "final" : "preview";
@@ -452,6 +457,27 @@ async function run(
     const scene = findScene(studio, project.id, required(rest[1], "scene"));
     const back = rollbackScene(studio, scene.id, versionNumber(rest[2]));
     console.log(`${sceneLabel(studio, back)} ${back.title} is on version ${versionNumber(rest[2])} again (${back.status}). Its clip is reused; nothing is rendered again.`);
+    return;
+  }
+  if (command === "image-key") {
+    saveImageKey(studio, rest[0] ?? "");
+    console.log(rest[0] ? `The key is saved in ${studio.workspaceDir}, outside the repository.` : "The key is forgotten.");
+    return;
+  }
+  if (command === "images") {
+    const project = getProject(studio, required(rest[0], "project"));
+    if (rest[1]) setImagesEnabled(studio, project.id, onOff(rest[1]));
+    const s = imageStatus(studio, project.id);
+    console.log(`AI-generated images are ${s.enabled ? "allowed" : "off"} for ${project.slug}.`);
+    if (s.enabled) console.log(s.engine === "mock" ? "The stand-in engine is in use: placeholders, nothing charged." : s.keyFrom ? `Model ${s.model}. A key is set. Claude has made ${s.madeByClaude} of at most ${s.limit}.` : "No key yet: npm run studio -- image-key <key>, or set GEMINI_API_KEY.");
+    return;
+  }
+  if (command === "image") {
+    const project = getProject(studio, required(rest[0], "project"));
+    console.log("Generating...");
+    const { asset, stale } = await generateImage(studio, project.id, { prompt: required(rest[1], "prompt"), label: flags.label, replaceAssetId: flags.again, by: "you" });
+    console.log(`${asset.label} (${asset.id}), ${asset.width} by ${asset.height}: ${projectPaths(studio, project).abs(asset.path)}`);
+    if (stale.length) console.log(`${stale.length} scene(s) that use it are marked out of date: npm run studio -- refresh ${project.slug}`);
     return;
   }
   if (command === "voice") {
