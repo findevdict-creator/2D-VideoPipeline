@@ -22,7 +22,7 @@ import { getRun, readRunLog } from "@studio/core/studio/store/runs";
 import { chooseColours, deleteScene, getScene, moveScene, rollbackScene, setTheme, updatePlan } from "@studio/core/studio/store/scenes";
 import { closeSharedRequest } from "@studio/core/studio/store/shared";
 import { Orchestrator } from "@studio/core/studio/workflow";
-import { exportFormat, MAX_ZOOM } from "@studio/core/studio/export";
+import { FITS, type Fit, exportFormat, MAX_ZOOM } from "@studio/core/studio/export";
 import { recommendLength } from "@studio/core/studio/length";
 import { assetKeyframes, projectList, projectSnapshot, sceneComparison, sceneDetail } from "./snapshot.js";
 
@@ -135,7 +135,11 @@ export async function startServer(studio: Studio, opts: { port?: number; orchest
     const zoom = body?.zoom === undefined ? 1 : Number(body.zoom);
     if (!(zoom >= 1 && zoom <= MAX_ZOOM)) throw new Error(`The zoom is a number from 1 to ${MAX_ZOOM}.`);
     const chapterId = body?.chapterId ? getChapter(studio, String(body.chapterId)).id : undefined;
-    background(o.export(project.id, { format, zoom, chapterId }).catch((err) => {
+    const fit = body?.fit === undefined ? undefined : (String(body.fit) as Fit);
+    if (fit && !(FITS as readonly string[]).includes(fit)) throw new Error(`The fit is one of: ${FITS.join(", ")}.`);
+    const captions = typeof body?.captions === "boolean" ? body.captions : undefined;
+    // A zoom only means something for a whole picture; left out, the export decides how to frame.
+    background(o.export(project.id, { format, zoom: body?.zoom === undefined ? undefined : zoom, fit, captions, chapterId }).catch((err) => {
       studio.emit("notice", { projectId: project.id, data: { level: "error", message: (err as Error).message } });
     }));
     return { started: true };

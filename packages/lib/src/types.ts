@@ -197,4 +197,6 @@ export interface ReframeData {
   picture: Box;
   /** Where captions go and how large they are. Null when the video has none. */
   captions: (Box & { fontSize: number }) | null;
+  /** What is behind the picture where it does not reach: nothing (the background colour), or a blurred copy of the picture. */
+  backdrop?: "blur";
 }

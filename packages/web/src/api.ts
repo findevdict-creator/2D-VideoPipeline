@@ -52,7 +52,7 @@ export const api = {
   buildScene: (id: string) => request("POST", `/api/scenes/${id}/build`, {}),
   renderScene: (id: string) => request("POST", `/api/scenes/${id}/render`, {}),
   compare: (id: string, a: number, b: number) => request<Comparison>("GET", `/api/scenes/${id}/compare?a=${a}&b=${b}`),
-  exportVideo: (slug: string, options: { format: string; zoom?: number; chapterId?: string }) => request("POST", `/api/projects/${encodeURIComponent(slug)}/export`, options),
+  exportVideo: (slug: string, options: { format: string; zoom?: number; fit?: string; captions?: boolean; chapterId?: string }) => request("POST", `/api/projects/${encodeURIComponent(slug)}/export`, options),
   moveScene: (id: string, direction: "earlier" | "later") => request("POST", `/api/scenes/${id}/move`, { direction }),
   deleteScene: (id: string) => request("DELETE", `/api/scenes/${id}`),
   rollbackScene: (id: string, version: number) => request("POST", `/api/scenes/${id}/rollback`, { version }),

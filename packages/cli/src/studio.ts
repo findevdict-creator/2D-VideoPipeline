@@ -9,7 +9,7 @@ import { listRuns, readRunLog } from "@studio/core/studio/store/runs";
 import { Orchestrator } from "@studio/core/studio/workflow";
 import { chooseColours, type ColourChoice, deleteScene, findScene, getScene, listReviews, listScenes, listVersions, moveScene, rollbackScene, sceneLabel, setTheme } from "@studio/core/studio/store/scenes";
 import { compareVersions } from "@studio/core/studio/scenes/compare";
-import { EXPORT_FORMATS, exportFormat, exportVideo, listExports } from "@studio/core/studio/export";
+import { type Fit, EXPORT_FORMATS, exportFormat, exportVideo, listExports } from "@studio/core/studio/export";
 import { ensureVoice } from "@studio/core/studio/voice";
 import { REFERENCE_ROLES } from "@studio/core/studio/model/asset";
 import type { ModelInfo } from "@studio/core/studio/assets/gltf";
@@ -55,7 +55,8 @@ Usage:
   npm run studio -- versions <project> <scene>       list a scene's versions
   npm run studio -- compare <project> <scene> <version> <version>   what differs between two versions of a scene
   npm run studio -- rollback <project> <scene> <version>            make an earlier version the current one again; its clip is reused
-  npm run studio -- export <project>                 export the approved video as a package (--format landscape|shorts|square, --chapter, --zoom)
+  npm run studio -- export <project>                 export the approved video as a package (--format landscape|shorts|square, --chapter, --fit, --zoom, --subtitles)
+  npm run studio -- subtitles <project> <on|off>     show or hide the subtitles drawn in the video (the .srt file is always written)
   npm run studio -- exports <project>                list what was exported
 
 A scene is named by its label, such as 1.3, or by its id.
@@ -74,7 +75,9 @@ Options:
   --pause-volume <0 to 1>                how loud the music is where nobody speaks (default 0.4)
   --steady                               keep the music at one level instead of dipping it under the voice
   --format <landscape|shorts|square>     the shape to export: 16:9, 9:16 for Shorts and Reels, or 1:1 (default: the shape the video was built in)
-  --zoom <1 to 2>                        for a taller shape: draw the picture larger and crop its sides (default 1, the whole picture)
+  --fit <fill|whole|blur>                for another shape: fill the frame and crop (the default), show the whole picture, or the whole picture on a blurred copy of itself
+  --zoom <1 to 2>                        with the whole picture in a taller shape: draw it larger and crop its sides
+  --subtitles <on|off>                   for this export only: draw the subtitles in the picture or leave them out
   --notes <text>                         what should change, for start and revise
   -h, --help
 `;
@@ -104,6 +107,8 @@ async function main() {
       steady: { type: "boolean", default: false },
       format: { type: "string" },
       zoom: { type: "string" },
+      fit: { type: "string" },
+      subtitles: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -126,7 +131,7 @@ async function run(
   studio: Studio,
   command: string,
   rest: string[],
-  flags: { final: boolean; yes?: boolean; chapter?: string; label?: string; reference?: string; note?: string; minutes?: string; seconds?: string; title?: string; notes?: string; at?: string; volume?: string; "pause-volume"?: string; steady?: boolean; format?: string; zoom?: string },
+  flags: { final: boolean; yes?: boolean; chapter?: string; label?: string; reference?: string; note?: string; minutes?: string; seconds?: string; title?: string; notes?: string; at?: string; volume?: string; "pause-volume"?: string; steady?: boolean; format?: string; zoom?: string; fit?: string; subtitles?: string },
 ) {
   const log = (message: string) => console.log(message);
   const quality = flags.final ? "final" : "preview";
@@ -443,11 +448,22 @@ async function run(
     console.log(`${sceneLabel(studio, back)} ${back.title} is on version ${versionNumber(rest[2])} again (${back.status}). Its clip is reused; nothing is rendered again.`);
     return;
   }
+  if (command === "subtitles" || command === "captions") {
+    const project = getProject(studio, required(rest[0], "project"));
+    if (rest[1] === undefined) {
+      console.log(`Subtitles are ${project.settings.captions ? "on" : "off"} for ${project.slug}.`);
+      return;
+    }
+    const on = onOff(rest[1]);
+    updateProject(studio, project.id, { settings: { captions: on } });
+    console.log(`Subtitles are now ${on ? "on" : "off"}. Clips are drawn again ${on ? "with" : "without"} them the next time a preview or the final video is put together. The .srt file is written either way.`);
+    return;
+  }
   if (command === "export") {
     const project = getProject(studio, required(rest[0], "project"));
     const chapter = flags.chapter ? chapterByNumber(studio, project.id, flags.chapter) : undefined;
     const zoom = flags.zoom === undefined ? undefined : Number(flags.zoom);
-    const result = await exportVideo(studio, project.id, { format: flags.format ? exportFormat(flags.format) : undefined, chapterId: chapter?.id, zoom, concurrency: studio.config.studio.lanes.renders, log });
+    const result = await exportVideo(studio, project.id, { format: flags.format ? exportFormat(flags.format) : undefined, chapterId: chapter?.id, zoom, fit: flags.fit as Fit | undefined, captions: flags.subtitles === undefined ? undefined : onOff(flags.subtitles), concurrency: studio.config.studio.lanes.renders, log });
     const e = result.export;
     console.log(`${result.rendered} clip(s) rendered, ${result.reused} reused. ${EXPORT_FORMATS[e.format].name}, ${e.width} by ${e.height}, ${e.durationSec.toFixed(1)}s.`);
     console.log(`Package: ${result.folder}`);
@@ -570,6 +586,13 @@ function assetNamed(studio: Studio, projectId: string, name: string) {
   const found = all.find((a) => a.id === name) ?? (all.filter((a) => a.label === name).length === 1 ? all.find((a) => a.label === name) : undefined);
   if (!found) throw new Error(`There is no asset "${name}" in this project. List them with: npm run studio -- assets <project>`);
   return found;
+}
+
+function onOff(word: string): boolean {
+  const w = word.trim().toLowerCase();
+  if (["on", "yes", "true", "add"].includes(w)) return true;
+  if (["off", "no", "false", "remove"].includes(w)) return false;
+  throw new Error(`Say "on" or "off", not "${word}".`);
 }
 
 /** A length as a person says it: "45 seconds", "7 minutes", "7 minutes 30 seconds". */

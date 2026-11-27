@@ -6,7 +6,9 @@ import { slugify } from "../production.js";
 import { gatherClips, joinClips, type Render } from "./assemble.js";
 import { newId, nowIso } from "./ids.js";
 import { ffmpeg } from "./media/ffmpeg.js";
+import { loadPronunciations } from "../voice/text.js";
 import { rendererFor } from "./renderers/registry.js";
+import { captionPages } from "./renderers/sceneData.js";
 import { libHash, renderClip, templateBundle } from "./renderers/remotion.js";
 import type { RenderContext } from "./renderers/types.js";
 import { clipCacheKey, qualitySettings, renderSceneClip, sceneContext } from "./scenes/render.js";
@@ -20,8 +22,8 @@ import { getScene, type Scene } from "./store/scenes.js";
 /** The shapes a video can be exported in. Each is made from the same approved scenes. */
 export const EXPORT_FORMATS = {
   landscape: { aspect: "16:9", name: "16:9 landscape", about: "YouTube, a website or a presentation." },
-  shorts: { aspect: "9:16", name: "9:16 vertical", about: "YouTube Shorts, Instagram Reels and TikTok. The picture sits in the upper part of the frame with larger captions under it." },
-  square: { aspect: "1:1", name: "1:1 square", about: "Feeds that show square video. The picture sits at the top with captions under it." },
+  shorts: { aspect: "9:16", name: "9:16 vertical", about: "YouTube Shorts, Instagram Reels and TikTok. The picture fills the frame, or is shown whole with larger captions under it." },
+  square: { aspect: "1:1", name: "1:1 square", about: "Feeds that show square video. The picture fills the frame, or is shown whole with captions under it." },
 } as const;
 
 export type ExportFormat = keyof typeof EXPORT_FORMATS;
@@ -41,6 +43,15 @@ export function exportFormat(name: string): ExportFormat {
 const SHORTS_MAX_SEC = 180;
 /** The most a picture may be enlarged: beyond this it is mostly cropped away. */
 export const MAX_ZOOM = 2;
+
+/**
+ * How a picture of one shape is put in a frame of another.
+ * "fill" covers the whole frame and crops what does not fit, with captions over the picture.
+ * "whole" shows all of it on the background colour, with captions in a band of their own.
+ * "blur" is "whole" with an enlarged, blurred copy of the picture behind it instead of a flat colour.
+ */
+export const FITS = ["fill", "whole", "blur"] as const;
+export type Fit = (typeof FITS)[number];
 
 export interface Size {
   width: number;
@@ -66,6 +77,8 @@ export interface ReframeLayout {
   zoom: number;
   /** The longest caption that fits on two lines. */
   maxChars: number;
+  /** The share of the picture's area that is inside the frame, from 0 to 1. */
+  shown: number;
 }
 
 /**
@@ -76,20 +89,36 @@ export interface ReframeLayout {
  * background colour at its sides and the captions across the bottom.
  * `fontSize` is the caption size of a 1080p video.
  */
-export function reframeLayout(source: Size, target: Size, opts: { zoom?: number; captions: boolean; fontSize: number }): ReframeLayout {
+export function reframeLayout(source: Size, target: Size, opts: { zoom?: number; fit?: Fit; captions: boolean; fontSize: number }): ReframeLayout {
   const W = target.width;
   const H = target.height;
   const shape = source.width / source.height;
   const perPixel = opts.fontSize / 1080;
   const lines = (fontSize: number) => Math.round(fontSize * 3);
   const fits = (width: number, fontSize: number) => Math.max(8, Math.floor(width / (fontSize * 0.56)) * 2);
+  const shownOf = (p: Box) => Math.round(((Math.min(p.width, W) * Math.min(p.height, H)) / (p.width * p.height)) * 1000) / 1000;
+  const wider = W / H >= shape - 0.01;
 
-  if (W / H >= shape - 0.01) {
+  if (opts.fit === "fill" && Math.abs(W / H - shape) > 0.01) {
+    // Cover the frame: the picture is as tall as a taller frame (or as wide as a wider one) and its middle is kept.
+    const scale = Math.max(W / source.width, H / source.height);
+    const picture = { width: Math.round(source.width * scale), height: Math.round(source.height * scale), x: 0, y: 0 };
+    picture.x = Math.round((W - picture.width) / 2);
+    picture.y = Math.round((H - picture.height) / 2);
+    const vertical = W / H < 0.7;
+    const fontSize = Math.max(8, Math.round(perPixel * (wider ? Math.min(W, H) : W * 1.2)));
+    const block = lines(fontSize);
+    // Over the picture, above the buttons a phone app draws on the bottom of a vertical video.
+    const box = { x: Math.round(W * 0.1), y: H - Math.round(H * (vertical ? 0.2 : 0.06)) - block, width: Math.round(W * 0.8), height: block, fontSize };
+    return { picture, captions: opts.captions ? box : null, zoom: Math.round((picture.width / W) * 1000) / 1000, maxChars: fits(box.width, fontSize), shown: shownOf(picture) };
+  }
+
+  if (wider) {
     const width = Math.round(H * shape);
     const fontSize = Math.max(8, Math.round(perPixel * Math.min(W, H)));
     const block = lines(fontSize);
     const box = { x: Math.round(W * 0.08), y: H - Math.round(H * 0.05) - block, width: Math.round(W * 0.84), height: block, fontSize };
-    return { picture: { x: Math.round((W - width) / 2), y: 0, width, height: H }, captions: opts.captions ? box : null, zoom: 1, maxChars: fits(box.width, fontSize) };
+    return { picture: { x: Math.round((W - width) / 2), y: 0, width, height: H }, captions: opts.captions ? box : null, zoom: 1, maxChars: fits(box.width, fontSize), shown: 1 };
   }
 
   const vertical = W / H < 0.7;
@@ -104,7 +133,8 @@ export function reframeLayout(source: Size, target: Size, opts: { zoom?: number;
   const height = Math.round(width / shape);
   const y = top + Math.max(0, Math.round((room - height) / 2));
   const box = { x: Math.round(W * 0.1), y: y + height + gap, width: Math.round(W * 0.8), height: block, fontSize };
-  return { picture: { x: Math.round((W - width) / 2), y, width, height }, captions: opts.captions ? box : null, zoom: Math.round(zoom * 1000) / 1000, maxChars: fits(box.width, fontSize) };
+  const picture = { x: Math.round((W - width) / 2), y, width, height };
+  return { picture, captions: opts.captions ? box : null, zoom: Math.round(zoom * 1000) / 1000, maxChars: fits(box.width, fontSize), shown: shownOf(picture) };
 }
 
 /**
@@ -146,31 +176,51 @@ function prune(dir: string, prefix: string) {
   for (const name of fs.readdirSync(dir)) if (name.startsWith(prefix)) fs.rmSync(path.join(dir, name), { force: true });
 }
 
+/** The same scene with its captions switched on or off, whatever the project says. */
+async function withCaptions(studio: Studio, ctx: RenderContext, on: boolean): Promise<RenderContext> {
+  if (ctx.data.captions.enabled === on) return ctx;
+  const pages = on ? captionPages(studio, ctx.track, ctx.project.fps, await loadPronunciations(studio.config)) : [];
+  return { ...ctx, data: { ...ctx.data, captions: { ...ctx.data.captions, enabled: on, pages } } };
+}
+
 /**
- * A scene's clip without captions, in final quality. When the video has no captions that
- * is the scene's own clip. Otherwise it is rendered once and kept, so every format made
- * from the scene starts from the same picture.
+ * A scene's clip in final quality with captions on or off. When that is how the project
+ * has them, it is the scene's own clip. Otherwise it is rendered once and kept, so every
+ * export made from the scene starts from the same picture.
  */
-async function cleanClip(studio: Studio, ctx: RenderContext, log: (m: string) => void): Promise<{ file: string; key: string; frames: number; cached: boolean }> {
+async function sceneClip(studio: Studio, ctx: RenderContext, captions: boolean, log: (m: string) => void): Promise<{ file: string; key: string; frames: number; cached: boolean }> {
   const p = projectPaths(studio, ctx.project);
-  if (!ctx.data.captions.enabled) {
+  if (ctx.data.captions.enabled === captions) {
     const { clip, cached } = await renderSceneClip(studio, ctx.scene.id, "final", () => {}, log, ctx.version.id);
     return { file: p.abs(clip.path), key: clip.cacheKey, frames: clip.durationFrames, cached };
   }
   const q = qualitySettings(studio, "final");
-  const data: VideoData = { ...ctx.data, captions: { ...ctx.data.captions, enabled: false, pages: [] } };
-  const clean = { ...ctx, data };
-  const key = await clipCacheKey(clean, q);
+  const changed = await withCaptions(studio, ctx, captions);
+  const data = changed.data;
+  const key = await clipCacheKey(changed, q);
   const frames = data.scenes[0]!.durationInFrames;
   const dir = path.join(ctx.workDir, "export");
-  const file = path.join(dir, `clean-${key}.mp4`);
+  const prefix = captions ? "subs-" : "clean-";
+  const file = path.join(dir, `${prefix}${key}.mp4`);
   if (fs.existsSync(file)) return { file, key, frames, cached: true };
   const problems = checkSpecAssets(studio, ctx.project.id, ctx.version.spec);
   if (problems.length) throw new Error(`The scene cannot be rendered:\n  - ${problems.join("\n  - ")}`);
-  prune(dir, "clean-");
-  const result = await rendererFor(ctx.version.spec.type).render({ ...clean, data: { ...data, assetBase: await studio.assetBase(ctx.project.slug) } }, q, file, () => {});
+  prune(dir, prefix);
+  const result = await rendererFor(ctx.version.spec.type).render({ ...changed, data: { ...data, assetBase: await studio.assetBase(ctx.project.slug) } }, q, file, () => {});
   if (result.durationFrames !== frames) throw new Error(`The clip is ${result.durationFrames} frames long but the narration needs ${frames}.`);
   return { file, key, frames, cached: false };
+}
+
+/** A scene's clip in the project's own shape, with captions switched the way this export wants them. */
+export async function captionedClip(studio: Studio, scene: Scene, versionId: string, captions: boolean, log: (m: string) => void = () => {}): Promise<{ file: string; frames: number; cached: boolean }> {
+  return sceneClip(studio, await sceneContext(studio, scene.id, log, versionId), captions, log);
+}
+
+export interface Framing {
+  zoom: number;
+  fit: Fit;
+  /** Captions drawn in the picture. Without it, the project's own setting. */
+  captions?: boolean;
 }
 
 /**
@@ -182,21 +232,23 @@ export async function reframedClip(
   scene: Scene,
   versionId: string,
   target: Size,
-  zoom: number,
+  framing: number | Framing,
   log: (m: string) => void = () => {},
 ): Promise<{ file: string; frames: number; cached: boolean }> {
-  const ctx = await sceneContext(studio, scene.id, log, versionId);
-  const p = projectPaths(studio, ctx.project);
+  const base = await sceneContext(studio, scene.id, log, versionId);
+  const { zoom, fit, captions = base.data.captions.enabled } = typeof framing === "number" ? ({ zoom: framing, fit: "whole" } as Framing) : framing;
+  const p = projectPaths(studio, base.project);
   const q = qualitySettings(studio, "final");
-  const clean = await cleanClip(studio, ctx, log);
-  const layout = reframeLayout(ctx.project, target, { zoom, captions: ctx.data.captions.enabled, fontSize: studio.config.render.captions.fontSize });
+  const clean = await sceneClip(studio, base, false, log);
+  const ctx = await withCaptions(studio, base, captions);
+  const layout = reframeLayout(ctx.project, target, { zoom, fit, captions, fontSize: studio.config.render.captions.fontSize });
   const data: VideoData = {
     ...ctx.data,
     width: target.width,
     height: target.height,
     captionSafeArea: 0,
     captions: { ...ctx.data.captions, pages: layout.captions ? refitPages(ctx.data.captions.pages, layout.maxChars) : [] },
-    reframe: { src: p.rel(clean.file), picture: layout.picture, captions: layout.captions },
+    reframe: { src: p.rel(clean.file), picture: layout.picture, captions: layout.captions, ...(fit === "blur" ? { backdrop: "blur" as const } : {}) },
   };
   const key = sha(JSON.stringify({ clean: clean.key, data, lib: libHash(), crf: q.crf }));
   const dir = path.join(ctx.workDir, "export");
@@ -235,6 +287,10 @@ export interface ExportOptions {
   chapterId?: string;
   /** How much larger than the frame's width the picture is drawn in a taller frame. 1 shows all of it; more crops the sides. */
   zoom?: number;
+  /** How the picture is put in a frame of another shape. Without it: "fill", or "whole" when a zoom is given. */
+  fit?: Fit;
+  /** Captions drawn in the picture. Without it, the project's own setting. The subtitle file is written either way. */
+  captions?: boolean;
   concurrency?: number;
   onProgress?: (done: number, total: number, label: string) => void;
   log?: (message: string) => void;
@@ -279,8 +335,14 @@ export async function exportVideo(studio: Studio, projectId: string, opts: Expor
   const notes: string[] = [];
   const asked = opts.zoom ?? 1;
   if (!(asked >= 1 && asked <= MAX_ZOOM)) throw new Error(`The zoom is a number from 1 (the whole picture) to ${MAX_ZOOM}.`);
-  const layout = asBuilt ? undefined : reframeLayout(project, size, { zoom: asked, captions: project.settings.captions && studio.config.render.captions.enabled, fontSize: studio.config.render.captions.fontSize });
-  if (layout && asked > layout.zoom + 0.001) {
+  if (opts.fit && !(FITS as readonly string[]).includes(opts.fit)) throw new Error(`The fit is one of: ${FITS.join(", ")}.`);
+  const ownCaptions = project.settings.captions && studio.config.render.captions.enabled;
+  const captions = opts.captions ?? ownCaptions;
+  const fit: Fit = opts.fit ?? (opts.zoom === undefined ? "fill" : "whole");
+  const layout = asBuilt ? undefined : reframeLayout(project, size, { zoom: asked, fit, captions, fontSize: studio.config.render.captions.fontSize });
+  if (layout && fit === "fill") {
+    notes.push(`The picture fills the frame, which shows the middle ${Math.round(layout.shown * 100)}% of it and crops the rest. To show all of it, export with "The whole picture".`);
+  } else if (layout && asked > layout.zoom + 0.001) {
     notes.push(
       size.width / size.height >= project.width / project.height
         ? "This shape is wider than the video, so the whole picture is shown with bars at its sides and the zoom was left at 1."
@@ -294,7 +356,11 @@ export async function exportVideo(studio: Studio, projectId: string, opts: Expor
     concurrency: opts.concurrency,
     onProgress: opts.onProgress,
     log,
-    clipFor: asBuilt ? undefined : (scene, versionId) => reframedClip(studio, scene, versionId, size, layout!.zoom, log),
+    clipFor: !asBuilt
+      ? (scene, versionId) => reframedClip(studio, scene, versionId, size, { zoom: fit === "fill" ? 1 : layout!.zoom, fit, captions }, log)
+      : captions !== ownCaptions
+        ? (scene, versionId) => captionedClip(studio, scene, versionId, captions, log)
+        : undefined,
   });
 
   const scope = opts.chapterId ? `chapter-${getChapter(studio, opts.chapterId).position}` : "video";
@@ -347,6 +413,8 @@ export async function exportVideo(studio: Studio, projectId: string, opts: Expor
         fps: project.fps,
         durationSec,
         zoom: layout?.zoom ?? 1,
+        fit: asBuilt ? null : fit,
+        captionsInPicture: captions,
         createdAt,
         files: Object.fromEntries(Object.entries(files).map(([k, v]) => [k, v ? path.basename(v) : null])),
         chapters,

@@ -93,6 +93,21 @@ test("a picture is placed in a taller, a square and a wider frame, and long capt
   assert.equal(noCaptions.captions, null);
   assert.equal(noCaptions.zoom, 2, "without captions the picture may take their room");
 
+  // Filling the frame: the picture is as tall as the frame, its middle is kept, and the captions lie over it above the bottom fifth.
+  const filled = reframeLayout(hd, { width: 1080, height: 1920 }, { fit: "fill", captions: true, fontSize: 54 });
+  assert.deepEqual(filled.picture, { x: -1166, y: 0, width: 3413, height: 1920 });
+  assert.equal(filled.shown, 0.316);
+  assert.ok(filled.captions!.y > 1920 / 2 && filled.captions!.y + filled.captions!.height <= 1920 * 0.8 + 1);
+  assert.equal(shorts.shown, 1);
+  assert.equal(closer.shown, 0.667);
+  const filledSquare = reframeLayout(hd, { width: 1080, height: 1080 }, { fit: "fill", captions: false, fontSize: 54 });
+  assert.deepEqual(filledSquare.picture, { x: -420, y: 0, width: 1920, height: 1080 });
+  // A tall picture in a wide frame fills it by losing its top and bottom.
+  const filledWide = reframeLayout({ width: 1080, height: 1920 }, hd, { fit: "fill", captions: true, fontSize: 54 });
+  assert.deepEqual(filledWide.picture, { x: 0, y: -1166, width: 1920, height: 3413 });
+  // The same shape has nothing to fill.
+  assert.deepEqual(reframeLayout(hd, hd, { fit: "fill", captions: false, fontSize: 54 }).picture, { x: 0, y: 0, width: 1920, height: 1080 });
+
   // Square: the same idea with less room.
   const square = reframeLayout(hd, { width: 1080, height: 1080 }, { captions: true, fontSize: 54 });
   assert.equal(square.picture.width, 1080);
@@ -264,7 +279,7 @@ test("with real rendering: going back to a version reuses its clip, and the same
   const wideInfo = await probe(wide.file);
   assert.deepEqual([wideInfo.width, wideInfo.height], [640, 360]);
 
-  const tall = await exportVideo(studio, project.id, { format: "shorts", concurrency: 2 });
+  const tall = await exportVideo(studio, project.id, { format: "shorts", fit: "whole", concurrency: 2 });
   assert.deepEqual([tall.rendered, tall.reused], [4, 0]);
   const tallInfo = await probe(tall.file);
   assert.deepEqual([tallInfo.width, tallInfo.height], [360, 640], "9:16 from the same project");
@@ -311,9 +326,42 @@ test("with real rendering: going back to a version reuses its clip, and the same
   assert.deepEqual([thumb.width, thumb.height], [360, 640]);
 
   // A second export of the same shape renders nothing; another framing renders only the placing, not the scenes.
-  const again = await exportVideo(studio, project.id, { format: "shorts", concurrency: 2 });
+  const again = await exportVideo(studio, project.id, { format: "shorts", fit: "whole", concurrency: 2 });
   assert.deepEqual([again.rendered, again.reused], [0, 4]);
   assert.notEqual(again.folder, tall.folder, "each export has a folder of its own");
+
+  // Asked for nothing else, a vertical export fills the frame: the picture reaches the top and the bottom, and the captions lie over it.
+  const full = await exportVideo(studio, project.id, { format: "shorts", concurrency: 2 });
+  const fullLayout = reframeLayout(project, size, { fit: "fill", captions: true, fontSize: studio.config.render.captions.fontSize });
+  assert.equal(fullLayout.picture.height, 640);
+  const fullManifest = JSON.parse(fs.readFileSync(p.abs(full.export.files.manifest), "utf8"));
+  assert.deepEqual([fullManifest.fit, fullManifest.captionsInPicture], ["fill", true]);
+  assert.match(full.export.notes.join(" "), /fills the frame, which shows the middle 32% of it/);
+  const band = { x: 0, y: 0, width: 360, height: layout.picture.y - 2 };
+  // The scene has stars across its background, so a part of the frame the picture reaches is not one flat colour.
+  const reached = await share(full.file, size, sec, band, isBackground);
+  assert.ok(reached < 0.999, `the picture reaches the top of the frame (${reached.toFixed(4)} of it is plain background)`);
+  assert.ok((await share(full.file, size, sec, fullLayout.captions!, isText)) > 0.02, "the captions are over the picture");
+
+  // The same export without subtitles in the picture. The subtitle file is still written.
+  const bare = await exportVideo(studio, project.id, { format: "shorts", captions: false, concurrency: 2 });
+  assert.deepEqual([bare.rendered, bare.reused], [4, 0], "only the placing is rendered: the scenes' clean clips are reused");
+  const bareText = await share(bare.file, size, sec, fullLayout.captions!, isText);
+  assert.ok(bareText < 0.004, `no captions are drawn (${bareText.toFixed(4)})`);
+  assert.match(fs.readFileSync(p.abs(bare.export.files.subtitles), "utf8"), /^1\n00:00:0\d,\d+ --> /);
+  assert.equal(JSON.parse(fs.readFileSync(p.abs(bare.export.files.manifest), "utf8")).captionsInPicture, false);
+
+  // In its own shape, too: 16:9 without the captions the project has.
+  const bareWide = await exportVideo(studio, project.id, { format: "landscape", captions: false, concurrency: 2 });
+  assert.deepEqual([bareWide.rendered, bareWide.reused], [0, 4], "the clean clips exist already");
+  const bareBurned = await share(bareWide.file, { width: 640, height: 360 }, sec, strip({ x: 0, y: 0, width: 640, height: 360 }), isText);
+  assert.ok(bareBurned < burned / 5, `the 16:9 picture has no captions on it (${bareBurned.toFixed(4)} against ${burned.toFixed(4)})`);
+
+  // The whole picture on a blurred copy of itself: the bands are no longer the flat background colour.
+  const soft = await exportVideo(studio, project.id, { format: "shorts", fit: "blur", zoom: 1, concurrency: 2 });
+  const softBand = await share(soft.file, size, sec, band, isBackground);
+  assert.ok(softBand < 0.9, `the band above the picture is a darkened copy, not the background colour (${softBand.toFixed(4)})`);
+  await assert.rejects(exportVideo(studio, project.id, { format: "shorts", fit: "stretch" as never }), /fit is one of: fill, whole, blur/);
 
   // One chapter, as a square, a little closer.
   const part = await exportVideo(studio, project.id, { format: "square", chapterId: chapters[1]!.id, zoom: 1.1, concurrency: 2 });
@@ -328,7 +376,7 @@ test("with real rendering: going back to a version reuses its clip, and the same
   const held = await exportVideo(studio, project.id, { format: "square", chapterId: chapters[1]!.id, zoom: 2, concurrency: 2 });
   assert.match(held.export.notes.join(" "), /no room for captions/);
 
-  assert.deepEqual(listExports(studio, project.id).map((x) => x.format), ["square", "square", "shorts", "shorts", "landscape"]);
+  assert.deepEqual(listExports(studio, project.id).map((x) => x.format), ["square", "square", "shorts", "landscape", "shorts", "shorts", "shorts", "shorts", "landscape"]);
   assert.ok(EXPORT_FORMATS.shorts.about.length > 0);
   o.stop();
   studio.close();

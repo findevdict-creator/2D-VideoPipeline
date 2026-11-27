@@ -270,10 +270,33 @@ function PlanTab({ snap }: { snap: Snapshot }) {
           <p className="muted">{theme.visualStyle}</p>
           <LookSwitch snap={snap} />
         </section>
+        <Subtitles snap={snap} />
         <Sound snap={snap} />
         <SceneTypes snap={snap} />
       </div>
     </div>
+  );
+}
+
+/** Whether the narration is also drawn in the picture, word by word. The subtitle file next to a video is written either way. */
+function Subtitles({ snap }: { snap: Snapshot }) {
+  const [busy, act] = useAction();
+  const on = snap.project.settings.captions;
+  return (
+    <section className="card">
+      <h3>Subtitles</h3>
+      <label className="check">
+        <input type="checkbox" checked={on} disabled={busy} onChange={(e) => act(() => api.updateSettings(snap.project.slug, { captions: e.target.checked }), e.target.checked ? "Subtitles are on" : "Subtitles are off")} />
+        <span>
+          <strong>Draw subtitles in the video</strong>
+          <span className="muted small"> · the words of the narration, with the one being spoken highlighted</span>
+        </span>
+      </label>
+      <p className="muted small">
+        Scenes are drawn again {on ? "with" : "without"} them the next time a preview or the final video is put together; no scene is built again. A subtitle file (.srt) is always written next to the video, and one export can be made with or
+        without them on the Video tab.
+      </p>
+    </section>
   );
 }
 
@@ -972,21 +995,26 @@ function ActivityTab({ snap }: { snap: Snapshot }) {
 // ---------- Video ----------
 
 const FRAMINGS = [
-  { zoom: 1, name: "The whole picture" },
-  { zoom: 1.25, name: "A little closer (crops the sides)" },
-  { zoom: 1.5, name: "Close (crops a third of the width)" },
-];
+  { id: "fill", fit: "fill", zoom: undefined, name: "Fill the frame (crops what does not fit)" },
+  { id: "blur", fit: "blur", zoom: 1, name: "The whole picture, on a blurred copy of itself" },
+  { id: "whole", fit: "whole", zoom: 1, name: "The whole picture, on the background colour" },
+  { id: "closer", fit: "blur", zoom: 1.5, name: "Halfway: closer, on a blurred copy (crops a third of the width)" },
+] as const;
 
 /** Export the approved video in a shape, as a package: the video, subtitles, a thumbnail and a description. */
 function ExportCard({ snap, slug, ready }: { snap: Snapshot; slug: string; ready: boolean }) {
   const [busy, act] = useAction();
   const [format, setFormat] = useState(snap.exportFormats.find((f) => f.asBuilt)?.format ?? snap.exportFormats[0]!.format);
   const [chapterId, setChapterId] = useState("");
-  const [zoom, setZoom] = useState(1);
+  const [framing, setFraming] = useState<string>("fill");
+  const [captions, setCaptions] = useState(snap.project.settings.captions);
+  // The project's own switch is where this starts; changing it there moves this one too.
+  useEffect(() => setCaptions(snap.project.settings.captions), [snap.project.settings.captions]);
   const jobs = snap.jobs as { id: string; kind: string; status: string; progress: number }[];
   const job = jobs.find((j) => j.kind === "export" && (j.status === "running" || j.status === "queued"));
   const chosen = snap.exportFormats.find((f) => f.format === format)!;
-  const taller = chosen.width / chosen.height < snap.project.width / snap.project.height;
+  const reshaped = !chosen.asBuilt;
+  const frame = FRAMINGS.find((f) => f.id === framing)!;
   const chapter = snap.chapters.find((c) => c.id === chapterId);
   const open = snap.scenes.filter((s) => (!chapter || s.chapterId === chapter.id) && s.status !== "approved").length;
   const can = snap.scenes.length > 0 && (chapter ? open === 0 : ready);
@@ -996,7 +1024,7 @@ function ExportCard({ snap, slug, ready }: { snap: Snapshot; slug: string; ready
         <h3>Export</h3>
         <p className="muted">
           The approved video in the shape a site wants, as a folder with the video, its subtitles, a thumbnail and a description with chapter times. Another shape is made from the same scenes: nothing is built again, and the
-          captions are laid out again to fit.
+          subtitles are laid out again to fit. A wide video cannot fill a vertical frame without losing its sides; for a video laid out for phones, choose 9:16 when you create the project.
         </p>
         <div className="formats">
           {snap.exportFormats.map((f) => (
@@ -1026,23 +1054,30 @@ function ExportCard({ snap, slug, ready }: { snap: Snapshot; slug: string; ready
               ))}
             </select>
           </label>
-          {taller && (
+          {reshaped && (
             <label>
-              Framing
-              <select value={zoom} onChange={(e) => setZoom(Number(e.target.value))}>
+              How the picture fits
+              <select value={framing} onChange={(e) => setFraming(e.target.value)}>
                 {FRAMINGS.map((f) => (
-                  <option key={f.zoom} value={f.zoom}>
+                  <option key={f.id} value={f.id}>
                     {f.name}
                   </option>
                 ))}
               </select>
             </label>
           )}
+          <label className="check">
+            <input type="checkbox" checked={captions} onChange={(e) => setCaptions(e.target.checked)} />
+            <span>
+              <strong>Subtitles in the picture</strong>
+              <span className="muted small"> · the subtitle file is in the folder either way</span>
+            </span>
+          </label>
           <button
             className="btn btn-primary"
             disabled={busy || Boolean(job) || !can}
             title={can ? "" : "Every scene in it must be approved first"}
-            onClick={() => act(() => api.exportVideo(slug, { format, zoom: taller ? zoom : 1, chapterId: chapterId || undefined }), "Exporting")}
+            onClick={() => act(() => api.exportVideo(slug, { format, ...(reshaped ? { fit: frame.fit, zoom: frame.zoom } : {}), captions, chapterId: chapterId || undefined }), "Exporting")}
           >
             Export
           </button>
