@@ -96,6 +96,18 @@ test("the key is kept in the workspace, is never part of what the GUI is sent, a
     assert.match(none.text, /no Google AI Studio key yet/);
 
     assert.equal((await call("POST", "/api/image-key", { key: "not a key" })).status, 400);
+    // Keys come in more than one form, and with whatever was around them when they were copied.
+    for (const [pasted, kept] of [
+      ["AQ.Ab8RN6Jx-example_key.with.dots", "AQ.Ab8RN6Jx-example_key.with.dots"],
+      [`"${KEY}"`, KEY],
+      [`GEMINI_API_KEY=${KEY}`, KEY],
+      [`export GOOGLE_API_KEY='${KEY}';`, KEY],
+      [`\ufeff\u200b${KEY}\u00a0\r\n`, KEY],
+      ["short", "short"],
+    ] as const) {
+      assert.equal((await call("POST", "/api/image-key", { key: pasted })).status, 200, pasted);
+      assert.equal(imageKey(studio).key, kept);
+    }
     assert.equal((await call("POST", "/api/image-key", { key: `  ${KEY}\n` })).status, 200);
     assert.deepEqual(imageKey(studio), { key: KEY, from: "studio" });
     assert.ok(fs.existsSync(path.join(studio.workspaceDir, "keys.json")));
