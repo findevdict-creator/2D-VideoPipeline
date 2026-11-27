@@ -147,6 +147,25 @@ export const StudioConfigSchema = z.object({
     .prefault({}),
   /** Models with more triangles than this get a warning when added: they render, but slowly. */
   modelTriangleBudget: z.number().int().min(1000).default(300_000),
+  /** AI image generation with Google's Gemini image models ("Nano Banana"). Each project switches it on for itself. */
+  images: z
+    .object({
+      /** "mock" makes plain placeholder pictures and calls nobody. The stand-in runner uses it. */
+      engine: z.enum(["gemini", "mock"]).default("gemini"),
+      /** The image model, by its id in the Gemini API. */
+      model: z.string().default("gemini-nano-banana-2.1"),
+      /** Which of Google's two request styles to use. Older models may only answer to "generateContent". */
+      api: z.enum(["interactions", "generateContent"]).default("interactions"),
+      /** A Google AI Studio key. Better kept out of this file: set GEMINI_API_KEY, or paste the key in the studio, which keeps it in the workspace. */
+      apiKey: z.string().default(""),
+      endpoint: z.string().default("https://generativelanguage.googleapis.com"),
+      /** "1K", "2K" or "4K". Empty leaves it to the model, which makes 1K. */
+      size: z.string().default(""),
+      /** The most images Claude may make for one project. Images you ask for yourself are not counted. */
+      maxPerProject: z.number().int().min(0).max(1000).default(30),
+      timeoutSec: z.number().positive().max(600).default(180),
+    })
+    .prefault({}),
   /** Port of the local GUI server. */
   port: z.number().int().min(1024).max(65535).default(4600),
 });
@@ -185,7 +204,7 @@ export interface PipelineConfig {
 }
 
 export type ConfigOverrides = Partial<Omit<PipelineConfig, "voice" | "render" | "animator" | "studio">> & {
-  studio?: Partial<StudioConfig>;
+  studio?: Partial<Omit<StudioConfig, "images">> & { images?: Partial<StudioConfig["images"]> };
   voice?: Partial<VoiceConfig>;
   render?: Partial<RenderConfig>;
   animator?: Partial<AnimatorConfig>;
@@ -232,6 +251,13 @@ export function loadConfig(overrides: ConfigOverrides = {}): PipelineConfig {
     ...(process.env.STUDIO_WORKSPACE ? { workspace: process.env.STUDIO_WORKSPACE } : {}),
     ...(process.env.STUDIO_PORT ? { port: Number(process.env.STUDIO_PORT) } : {}),
     ...overrides.studio,
+    images: {
+      ...((file.studio?.images as object | undefined) ?? {}),
+      // The stand-in runner costs nothing anywhere, so it does not call Google either.
+      ...(runner === "mock" ? { engine: "mock" } : {}),
+      ...(process.env.STUDIO_IMAGE_ENGINE ? { engine: process.env.STUDIO_IMAGE_ENGINE } : {}),
+      ...(overrides.studio?.images ?? {}),
+    },
   });
 
   return {

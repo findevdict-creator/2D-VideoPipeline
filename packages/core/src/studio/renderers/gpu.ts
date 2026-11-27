@@ -37,7 +37,7 @@ function crc32(data: Buffer): number {
 }
 
 /** A plain gray PNG, written by hand so the check needs nothing but ffmpeg. */
-export function grayPng(width: number, height: number): Buffer {
+export function grayPng(width: number, height: number, rgb: [number, number, number] = [128, 128, 128]): Buffer {
   const chunk = (type: string, data: Buffer) => {
     const body = Buffer.concat([Buffer.from(type, "latin1"), data]);
     const out = Buffer.alloc(body.length + 8);
@@ -52,7 +52,11 @@ export function grayPng(width: number, height: number): Buffer {
   header.set([8, 2, 0, 0, 0], 8); // 8 bits per channel, RGB
   // Each row is a filter byte (0, none) and then its pixels.
   const rows = Buffer.alloc((width * 3 + 1) * height, 128);
-  for (let y = 0; y < height; y++) rows[y * (width * 3 + 1)] = 0;
+  for (let y = 0; y < height; y++) {
+    const at = y * (width * 3 + 1);
+    rows[at] = 0;
+    for (let x = 0; x < width; x++) rows.set(rgb, at + 1 + x * 3);
+  }
   return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", header), chunk("IDAT", zlib.deflateSync(rows)), chunk("IEND", Buffer.alloc(0))]);
 }
 

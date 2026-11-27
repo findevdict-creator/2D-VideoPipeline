@@ -79,11 +79,11 @@ export function createProject(studio: Studio, input: NewProject): Project {
 export function getProject(studio: Studio, idOrSlug: string): Project {
   const row = studio.db.get<Record<string, unknown>>("SELECT * FROM projects WHERE id = ? OR slug = ?", [idOrSlug, idOrSlug]);
   if (!row) throw new Error(`No project called "${idOrSlug}"`);
-  return fromRow<Project>(row)!;
+  return withDefaults(fromRow<Project>(row)!);
 }
 
 export function listProjects(studio: Studio): Project[] {
-  return fromRows<Project>(studio.db.all("SELECT * FROM projects ORDER BY created_at DESC"));
+  return fromRows<Project>(studio.db.all("SELECT * FROM projects ORDER BY created_at DESC")).map(withDefaults);
 }
 
 export function updateProject(
@@ -108,6 +108,12 @@ export function updateProject(
   );
   studio.emit("project.updated", { projectId: current.id });
   return getProject(studio, current.id);
+}
+
+/** A project made before a setting existed gets that setting's default. One whose settings cannot be read is left as it is. */
+function withDefaults(project: Project): Project {
+  const parsed = ProjectSettingsSchema.safeParse(project.settings ?? {});
+  return parsed.success ? { ...project, settings: parsed.data } : project;
 }
 
 function titleFrom(description: string): string {
