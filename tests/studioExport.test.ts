@@ -5,6 +5,8 @@ import path from "node:path";
 import type { CaptionPage } from "../packages/lib/src/types.js";
 import { startServer } from "../packages/server/src/server.js";
 import { assemble } from "../packages/core/src/studio/assemble.js";
+import { saveThumbnail } from "../packages/core/src/studio/thumbnail.js";
+import { saveYouTubeDetails } from "../packages/core/src/studio/youtube.js";
 import { EXPORT_FORMATS, exportFormat, exportSize, exportVideo, listExports, reframeLayout, refitPages, timestamp } from "../packages/core/src/studio/export.js";
 import { ffmpeg, probe } from "../packages/core/src/studio/media/ffmpeg.js";
 import { MockStudioRunner } from "../packages/core/src/studio/runs/mock.js";
@@ -351,8 +353,22 @@ test("with real rendering: going back to a version reuses its clip, and the same
   assert.match(fs.readFileSync(p.abs(bare.export.files.subtitles), "utf8"), /^1\n00:00:0\d,\d+ --> /);
   assert.equal(JSON.parse(fs.readFileSync(p.abs(bare.export.files.manifest), "utf8")).captionsInPicture, false);
 
-  // In its own shape, too: 16:9 without the captions the project has.
+  // In its own shape, too: 16:9 without the captions the project has. By now the project has upload details and a
+  // designed thumbnail, so the package carries those instead of the plain description and a frame of the video.
+  saveYouTubeDetails(studio, project.id, { title: "Why GPS needs four satellites", description: "Three give a place. The fourth gives the time.", tags: ["gps", "satellites"], hashtags: ["gps"] });
+  const designed = await saveThumbnail(studio, project.id, {
+    code: `import React from "react";\nimport { useTheme } from "@pipeline/lib";\nexport default function Thumbnail() {\n  const t = useTheme();\n  return <div style={{ position: "absolute", inset: 0, background: "#FF0000", width: t.width, height: t.height }} />;\n}\n`,
+    text: "",
+  });
+  assert.equal(designed.drawProblem, undefined);
   const bareWide = await exportVideo(studio, project.id, { format: "landscape", captions: false, concurrency: 2 });
+  const sheet = fs.readFileSync(p.abs(bareWide.export.files.youtube!), "utf8");
+  assert.match(sheet, /^TITLE\nWhy GPS needs four satellites\n\nDESCRIPTION\nThree give a place\. The fourth gives the time\.\n\nChapters\n0:00 /);
+  assert.match(sheet, /#gps\n\nTAGS \(paste into the Tags box\)\ngps, satellites\n$/);
+  assert.ok(fs.readFileSync(p.abs(bareWide.export.files.description), "utf8").startsWith("Three give a place. The fourth gives the time.\n\nChapters\n0:00 "));
+  const designedThumb = await probe(p.abs(bareWide.export.files.thumbnail!));
+  assert.deepEqual([designedThumb.width, designedThumb.height], [1280, 720], "the designed thumbnail, not a frame of the 640 by 360 video");
+  assert.equal(tall.export.files.youtube, undefined, "an export made before the details were written has no sheet");
   assert.deepEqual([bareWide.rendered, bareWide.reused], [0, 4], "the clean clips exist already");
   const bareBurned = await share(bareWide.file, { width: 640, height: 360 }, sec, strip({ x: 0, y: 0, width: 640, height: 360 }), isText);
   assert.ok(bareBurned < burned / 5, `the 16:9 picture has no captions on it (${bareBurned.toFixed(4)} against ${burned.toFixed(4)})`);

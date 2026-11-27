@@ -35,6 +35,11 @@ export const api = {
   project: (slug: string) => request<Snapshot>("GET", `/api/projects/${encodeURIComponent(slug)}`),
   chooseColours: (slug: string, choice: { scheme?: string; palette?: Record<string, string>; fontFamily?: string; locked?: boolean }) =>
     request<{ scenesNowStale: number; warnings: string[] }>("POST", `/api/projects/${encodeURIComponent(slug)}/colours`, choice),
+  designThumbnail: (slug: string, notes?: string) => request("POST", `/api/projects/${encodeURIComponent(slug)}/thumbnail`, { notes }),
+  writeYouTube: (slug: string, notes?: string) => request("POST", `/api/projects/${encodeURIComponent(slug)}/youtube`, { notes }),
+  saveYouTube: (slug: string, edits: { title?: string; description?: string; tags?: string; hashtags?: string }) => request("PATCH", `/api/projects/${encodeURIComponent(slug)}/youtube`, edits),
+  setVoice: (slug: string, choice: { voice?: string; pace?: string }) => request("POST", `/api/projects/${encodeURIComponent(slug)}/voice`, choice),
+  previewVoice: (slug: string, choice: { voice?: string; pace?: string }) => request<{ url: string; silent: boolean }>("POST", `/api/projects/${encodeURIComponent(slug)}/voice/preview`, choice),
   updateSettings: (slug: string, settings: { sceneTypes?: string[]; captions?: boolean; theme?: { look?: string }; music?: Record<string, unknown>; sfx?: Record<string, unknown> }) => request("PATCH", `/api/projects/${encodeURIComponent(slug)}`, { settings }),
   startStage: (slug: string, notes?: string) => request("POST", `/api/projects/${encodeURIComponent(slug)}/stage/start`, { notes }),
   approveStage: (slug: string) => request<{ stage: Stage }>("POST", `/api/projects/${encodeURIComponent(slug)}/stage/approve`, {}),

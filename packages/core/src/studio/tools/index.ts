@@ -19,6 +19,7 @@ import { listAssets, listProjectReferences, listSceneReferences, type Asset } fr
 import { getChapter, listChapters, proposeChapters } from "../store/chapters.js";
 import { latestDocument, listDocuments, readDocument, saveDocument } from "../store/documents.js";
 import { getProject, projectPaths } from "../store/projects.js";
+import { checkThumbnail, saveThumbnail, THUMBNAIL_SIZE } from "../thumbnail.js";
 import type { RunKind } from "../store/runs.js";
 import {
   currentVersion,
@@ -463,6 +464,37 @@ const tools: ToolDef<any>[] = [
           ? `${input.name}: every pose and every expression. Check that each one reads clearly, that they are plainly the same character, and that it matches the brief.`
           : `${input.name}: its Demo, two seconds in. Check that it is drawn as the brief says.`;
       return { ...saved, images: [{ file: preview, caption }] };
+    },
+  }),
+  defineTool({
+    name: "thumbnail_save",
+    description:
+      "Save the video's thumbnail: a .tsx file that default-exports a React component, drawn once as a still in a frame of 1280 by 720. Returns the picture at full size and at the size it is seen at in a list of videos. Each save replaces the design.",
+    writers: ["thumbnail"],
+    input: z.object({
+      code: z.string().min(20),
+      text: z.string().max(60).optional().describe("The words on the thumbnail, exactly as drawn. Empty when it has none"),
+      idea: z.string().max(400).optional().describe("The promise the thumbnail makes and why someone would click, in one or two sentences"),
+    }),
+    handler: async (ctx, input) => {
+      scopeOf(ctx, ["thumbnail"]);
+      const { studio } = ctx;
+      const project = getProject(studio, ctx.projectId);
+      const words = (input.text ?? "").trim().split(/\s+/).filter(Boolean);
+      const problems = await checkThumbnail(studio, project, input.code);
+      if (words.length > 5) problems.push(`The thumbnail has ${words.length} words. Four is the most that can be read at the size thumbnails are seen at; cut it down.`);
+      if (problems.length) return { saved: false, problems };
+      const saved = await saveThumbnail(studio, ctx.projectId, input);
+      const result = { saved: true, version: saved.thumbnail.version, size: THUMBNAIL_SIZE };
+      if (saved.drawProblem) return { ...result, drawProblem: `The thumbnail could not be drawn: ${saved.drawProblem}. If that is a fault in the code, fix it and save again.` };
+      if (!saved.image || !saved.small) return result;
+      return {
+        ...result,
+        images: [
+          { file: saved.image, caption: "The thumbnail at full size, 1280 by 720." },
+          { file: saved.small, caption: "The same thumbnail at 320 by 180, the size most people see it at. Judge this one with the stamp test in the thumbnail guide." },
+        ],
+      };
     },
   }),
   defineTool({

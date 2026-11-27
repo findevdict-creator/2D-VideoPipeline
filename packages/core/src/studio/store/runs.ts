@@ -6,14 +6,14 @@ import { fromRow, fromRows } from "./mapping.js";
 import { getProject, projectPaths } from "./projects.js";
 
 /** What a run is allowed to work on. The MCP server refuses writes outside it. */
-export const RUN_KINDS = ["outline", "bible", "foundation", "chapter", "scene"] as const;
+export const RUN_KINDS = ["outline", "bible", "foundation", "chapter", "scene", "thumbnail"] as const;
 export type RunKind = (typeof RUN_KINDS)[number];
 export type RunStatus = "queued" | "running" | "done" | "failed" | "cancelled";
 
 export interface AgentRun {
   id: string;
   projectId: string;
-  /** The kind of run: outline, bible, foundation, chapter or scene. */
+  /** The kind of run: outline, bible, foundation, chapter, scene or thumbnail. */
   targetKind: RunKind;
   /** The chapter or scene the run works on. Empty for runs on the whole project. */
   targetId: string | null;

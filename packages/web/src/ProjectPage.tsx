@@ -270,11 +270,93 @@ function PlanTab({ snap }: { snap: Snapshot }) {
           <p className="muted">{theme.visualStyle}</p>
           <LookSwitch snap={snap} />
         </section>
+        <Voice snap={snap} />
         <Subtitles snap={snap} />
         <Sound snap={snap} />
         <SceneTypes snap={snap} />
       </div>
     </div>
+  );
+}
+
+/** Who narrates and how fast, with a sample to listen to before choosing. */
+function Voice({ snap }: { snap: Snapshot }) {
+  const [busy, act] = useAction();
+  const toast = useToast();
+  const current = snap.project.settings.voice;
+  const { list, paces, silent } = snap.voices;
+  const [voice, setVoice] = useState(current.kokoroVoice);
+  const [pace, setPace] = useState<string>(current.pace);
+  const [sample, setSample] = useState<string>();
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    setVoice(current.kokoroVoice);
+    setPace(current.pace);
+  }, [current.kokoroVoice, current.pace]);
+  const changed = voice !== current.kokoroVoice || pace !== current.pace;
+  const recorded = snap.scenes.filter((s) => s.status !== "planned").length;
+  const groups = [
+    { name: "American, female", match: (v: (typeof list)[number]) => v.accent === "American" && v.gender === "female" },
+    { name: "American, male", match: (v: (typeof list)[number]) => v.accent === "American" && v.gender === "male" },
+    { name: "British, female", match: (v: (typeof list)[number]) => v.accent === "British" && v.gender === "female" },
+    { name: "British, male", match: (v: (typeof list)[number]) => v.accent === "British" && v.gender === "male" },
+  ];
+  const listen = async () => {
+    setLoading(true);
+    setSample(undefined);
+    try {
+      const got = await api.previewVoice(snap.project.slug, { voice, pace });
+      setSample(got.url);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+  return (
+    <section className="card">
+      <h3>Voice</h3>
+      <div className="row wrap">
+        <label>
+          Narrator
+          <select value={voice} disabled={busy} onChange={(e) => (setVoice(e.target.value), setSample(undefined))}>
+            {!list.some((v) => v.id === voice) && <option value={voice}>{voice}</option>}
+            {groups.map((g) => (
+              <optgroup key={g.name} label={g.name}>
+                {list.filter(g.match).map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.name} ({v.id})
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </label>
+        <label>
+          Pace
+          <select value={pace} disabled={busy} onChange={(e) => (setPace(e.target.value), setSample(undefined))}>
+            {paces.map((p) => (
+              <option key={p} value={p}>
+                {p[0]!.toUpperCase() + p.slice(1)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button className="btn" disabled={loading} onClick={listen}>
+          {loading ? "Recording a sample…" : "Listen"}
+        </button>
+        <button className="btn btn-primary" disabled={busy || !changed} onClick={() => act(() => api.setVoice(snap.project.slug, { voice, pace }), "Voice changed")}>
+          Use this voice
+        </button>
+      </div>
+      {sample && <audio src={sample} controls autoPlay style={{ width: "100%", marginTop: 10 }} />}
+      {silent && <p className="warn small">The stand-in voice is in use, so samples and narration are silent. Install the voice model (npm run setup:voice) to hear them.</p>}
+      <p className="muted small">
+        {recorded > 0 && changed
+          ? `The narration of ${recorded} scene${recorded === 1 ? "" : "s"} is recorded again in the new voice the next time a preview or the final video is put together. Scenes keep their approval, and what happens on screen follows the new timing.`
+          : "The first sample of a voice takes a few seconds while the voice model loads. Narration is recorded again only for a voice it has not been recorded in."}
+      </p>
+    </section>
   );
 }
 
@@ -994,6 +1076,166 @@ function ActivityTab({ snap }: { snap: Snapshot }) {
 
 // ---------- Video ----------
 
+/** The picture that decides whether someone clicks: designed by Claude, shown at full size and at the size it is seen at. */
+function ThumbnailCard({ snap, slug }: { snap: Snapshot; slug: string }) {
+  const [busy, act] = useAction();
+  const [asking, setAsking] = useState(false);
+  const { design, designing, failed } = snap.thumbnail;
+  const hasOutline = Boolean(snap.documents.outline);
+  return (
+    <section className="card">
+      <h3>Thumbnail</h3>
+      <p className="muted">
+        Claude designs a thumbnail for the video, 1280 by 720, following the studio's guide for thumbnails that get clicked: one subject, at most four words, strong contrast, and a reason to be curious. It goes into every 16:9 export.
+      </p>
+      {design?.url ? (
+        <div className="thumbnail">
+          <img src={design.url} alt="The designed thumbnail" />
+          <div>
+            {design.smallUrl && (
+              <>
+                <img className="thumbnail-small" src={design.smallUrl} alt="The thumbnail at the size it is seen at in a list" />
+                <p className="muted small">The size most people see it at. If you cannot read it here, ask for larger text.</p>
+              </>
+            )}
+            {design.text && (
+              <p>
+                <strong>{design.text}</strong>
+              </p>
+            )}
+            {design.idea && <p className="muted small">{design.idea}</p>}
+            <a className="btn btn-quiet" href={design.url} download="thumbnail.png">
+              Download
+            </a>
+          </div>
+        </div>
+      ) : design ? (
+        <p className="muted">A design is saved, but it has not been drawn on this computer.</p>
+      ) : null}
+      {failed && !designing && <p className="notice notice-bad">The last design run failed: {failed.split("\n")[0]}</p>}
+      {designing ? (
+        <p className="notice">Claude is designing the thumbnail. It draws a version, looks at it small, and improves it, which takes a few minutes. Progress is on the Activity tab.</p>
+      ) : asking ? (
+        <NotesBox
+          label="Send to Claude"
+          placeholder="What should change? For example: make the number larger, use the character, try a different idea."
+          busy={busy}
+          onCancel={() => setAsking(false)}
+          onSend={(notes) => act(async () => (await api.designThumbnail(slug, notes), setAsking(false)), "Claude is on it")}
+        />
+      ) : (
+        <div className="row">
+          <button className={`btn ${design ? "" : "btn-primary"}`} disabled={busy || !hasOutline} title={hasOutline ? "" : "The thumbnail is designed from the outline, which is not written yet"} onClick={() => act(() => api.designThumbnail(slug), "Claude is designing the thumbnail")}>
+            {design ? "Design a new one" : "Design a thumbnail"}
+          </button>
+          {design && (
+            <button className="btn" disabled={busy} onClick={() => setAsking(true)}>
+              Ask for changes
+            </button>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** One field of the upload form, with a button that copies it. */
+function CopyField({ label, value, rows, count, onChange }: { label: string; value: string; rows: number; count?: string; onChange: (value: string) => void }) {
+  const toast = useToast();
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast(`${label} copied`, "good");
+    } catch {
+      toast("Copying is not allowed in this browser. Select the text and copy it.");
+    }
+  };
+  return (
+    <label className="copy-field">
+      <span className="row">
+        <span className="grow">
+          {label} {count && <span className="muted small">· {count}</span>}
+        </span>
+        <button type="button" className="link" onClick={copy}>
+          Copy
+        </button>
+      </span>
+      {rows === 1 ? <input type="text" value={value} onChange={(e) => onChange(e.target.value)} /> : <textarea rows={rows} value={value} onChange={(e) => onChange(e.target.value)} />}
+    </label>
+  );
+}
+
+/** The title, description and tags for uploading, written by Claude from the outline and the narration, and editable. */
+function UploadDetails({ snap, slug }: { snap: Snapshot; slug: string }) {
+  const [busy, act] = useAction();
+  const [asking, setAsking] = useState(false);
+  const y = snap.youtube;
+  const [title, setTitle] = useState(y?.title ?? "");
+  const [description, setDescription] = useState(y?.description ?? "");
+  const [tags, setTags] = useState(y?.tags.join(", ") ?? "");
+  const [hashtags, setHashtags] = useState(y?.hashtags.join(", ") ?? "");
+  const saved = JSON.stringify(y);
+  useEffect(() => {
+    setTitle(y?.title ?? "");
+    setDescription(y?.description ?? "");
+    setTags(y?.tags.join(", ") ?? "");
+    setHashtags(y?.hashtags.join(", ") ?? "");
+  }, [saved]);
+  const changed = y && (title !== y.title || description !== y.description || tags !== y.tags.join(", ") || hashtags !== y.hashtags.join(", "));
+  const hasOutline = Boolean(snap.documents.outline);
+  return (
+    <section className="card">
+      <h3>Title, description and tags</h3>
+      <p className="muted">
+        What YouTube asks for when you upload, written from the video's outline and narration. Edit anything; an export puts it in the folder as youtube.txt, with the chapter times and hashtags added to the description.
+      </p>
+      {y && (
+        <div className="upload-details">
+          <CopyField label="Title" value={title} rows={1} count={`${title.length} of 100 characters`} onChange={setTitle} />
+          {y.alternativeTitles.length > 0 && (
+            <p className="muted small">
+              Other titles:{" "}
+              {y.alternativeTitles.map((t) => (
+                <button key={t} className="link" style={{ marginRight: 12 }} onClick={() => setTitle(t)}>
+                  {t}
+                </button>
+              ))}
+            </p>
+          )}
+          <CopyField label="Description" value={description} rows={8} onChange={setDescription} />
+          <CopyField label="Tags" value={tags} rows={3} count={`${tags.length} of 500 characters`} onChange={setTags} />
+          <CopyField label="Hashtags" value={hashtags} rows={1} count="up to three" onChange={setHashtags} />
+        </div>
+      )}
+      {asking ? (
+        <NotesBox
+          label="Write them again"
+          placeholder="What should be different? For example: aim the title at students, mention the prize."
+          busy={busy}
+          onCancel={() => setAsking(false)}
+          onSend={(notes) => act(async () => (await api.writeYouTube(slug, notes), setAsking(false)), "Written")}
+        />
+      ) : (
+        <div className="row">
+          {changed && (
+            <button className="btn btn-primary" disabled={busy} onClick={() => act(() => api.saveYouTube(slug, { title, description, tags, hashtags }), "Saved")}>
+              Save changes
+            </button>
+          )}
+          <button className={`btn ${y ? "" : "btn-primary"}`} disabled={busy || !hasOutline} title={hasOutline ? "" : "They are written from the outline, which is not there yet"} onClick={() => act(() => api.writeYouTube(slug), "Written")}>
+            {busy ? "Claude is writing…" : y ? "Write them again" : "Write title, description and tags"}
+          </button>
+          {y && (
+            <button className="btn" disabled={busy} onClick={() => setAsking(true)}>
+              Ask for changes
+            </button>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 const FRAMINGS = [
   { id: "fill", fit: "fill", zoom: undefined, name: "Fill the frame (crops what does not fit)" },
   { id: "blur", fit: "blur", zoom: 1, name: "The whole picture, on a blurred copy of itself" },
@@ -1131,6 +1373,13 @@ function ExportCard({ snap, slug, ready }: { snap: Snapshot; slug: string; ready
                       </a>
                     </li>
                   )}
+                  {e.youtubeUrl && (
+                    <li>
+                      <a className="btn btn-quiet" href={e.youtubeUrl} target="_blank" rel="noreferrer">
+                        Title, description and tags
+                      </a>
+                    </li>
+                  )}
                   {e.descriptionUrl && (
                     <li>
                       <a className="btn btn-quiet" href={e.descriptionUrl} target="_blank" rel="noreferrer">
@@ -1185,6 +1434,8 @@ function VideoTab({ snap, slug, onOpenScenes }: { snap: Snapshot; slug: string; 
           </div>
         )}
       </section>
+      <ThumbnailCard snap={snap} slug={slug} />
+      <UploadDetails snap={snap} slug={slug} />
       <ExportCard snap={snap} slug={slug} ready={allApproved} />
       {snap.renders.map((r, i) => (
         <section key={r.id} className="card render">

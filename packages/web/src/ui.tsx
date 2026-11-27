@@ -50,6 +50,7 @@ export const RUN_KIND: Record<string, string> = {
   foundation: "Shared parts",
   chapter: "Scene list",
   scene: "Scene",
+  thumbnail: "Thumbnail",
 };
 
 export const TYPE_NAME: Record<string, string> = {

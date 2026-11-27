@@ -272,6 +272,48 @@ async function renderClipWith(ctx: RenderContext, serveUrl: string, q: QualitySe
 }
 
 /**
+ * The data for drawing one component by itself, outside any scene: three seconds long, with
+ * no narration, captions, entrance or camera move. `size` draws it in a frame other than the project's.
+ */
+export function standaloneData(project: Project, id: string, title: string, size: { width: number; height: number } = project): VideoData {
+  const fps = project.fps;
+  const durationInFrames = fps * 3;
+  return {
+    title: project.title,
+    fps,
+    width: size.width,
+    height: size.height,
+    style: project.settings.theme,
+    transitionFrames: 0,
+    captionSafeArea: 0,
+    scenes: [
+      {
+        id,
+        title,
+        narration: "",
+        layout: "",
+        visualDescription: "",
+        elements: [],
+        onScreenText: [],
+        transitionIn: "cut",
+        camera: "static",
+        startFrame: 0,
+        durationInFrames,
+        speechStartFrame: 0,
+        speechEndFrame: durationInFrames,
+        audio: null,
+        cues: [],
+        words: [],
+        kind: "code",
+        overlays: [],
+      },
+    ],
+    captions: { enabled: false, fontSize: 54, position: "bottom", highlight: "accent", pages: [] },
+    music: { src: null, volume: 0 },
+  };
+}
+
+/**
  * A still of a shared asset, so the agent that built it and the person approving it can
  * both see it. A component's Demo is drawn as a three-second scene of its own; a
  * character is drawn as its sheet, every pose and expression with its name.
@@ -299,40 +341,7 @@ registerRoot(makeSceneRoot(Demo));
   const key = sha(JSON.stringify([code, kind, libHash(), sharedHash(code, p.sharedComponents)]));
   const serveUrl = await bundleOnce(key, path.join(p.work, "shared-preview", name, "bundle"), entry, p.sharedComponents);
   const fps = project.fps;
-  const durationInFrames = fps * 3;
-  const data: VideoData = {
-    title: project.title,
-    fps,
-    width: project.width,
-    height: project.height,
-    style: project.settings.theme,
-    transitionFrames: 0,
-    captionSafeArea: 0,
-    scenes: [
-      {
-        id: `demo-${name}`,
-        title: name,
-        narration: "",
-        layout: "",
-        visualDescription: "",
-        elements: [],
-        onScreenText: [],
-        transitionIn: "cut",
-        camera: "static",
-        startFrame: 0,
-        durationInFrames,
-        speechStartFrame: 0,
-        speechEndFrame: durationInFrames,
-        audio: null,
-        cues: [],
-        words: [],
-        kind: "code",
-        overlays: [],
-      },
-    ],
-    captions: { enabled: false, fontSize: 54, position: "bottom", highlight: "accent", pages: [] },
-    music: { src: null, volume: 0 },
-  };
+  const data = standaloneData(project, `demo-${name}`, name);
   const inputProps = { data };
   const browserExecutable = browser(studio);
   const composition = await selectComposition({ serveUrl, id: "Scene", inputProps, browserExecutable, logLevel: "error" });

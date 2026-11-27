@@ -166,6 +166,13 @@ export class MockStudioRunner implements StudioRunner {
         text = `Wrote ${scenes.length} scenes for "${chapter.title}".`;
         break;
       }
+      case "thumbnail": {
+        await call("document_read", { kind: "outline" });
+        const word = (notes ?? project.title).split(/\s+/).filter(Boolean).slice(0, 2).join(" ").toUpperCase();
+        const saved = await call("thumbnail_save", { code: thumbnailCode(word), text: word, idea: "A sample thumbnail from the stand-in runner: the first words of the title, large, on the video's colours." });
+        text = `Designed thumbnail version ${saved.version}.`;
+        break;
+      }
       case "scene": {
         const scene = await call("scene_get");
         await call("document_read", { kind: "bible" });
@@ -398,3 +405,20 @@ export default function Scene() {
   );
 }
 `;
+
+/** A plain thumbnail: two words, huge, with a block of the accent colour beside them. */
+function thumbnailCode(words: string): string {
+  return `import React from "react";
+import { useTheme } from "@pipeline/lib";
+
+export default function Thumbnail() {
+  const t = useTheme();
+  return (
+    <div style={{ position: "absolute", inset: 0, background: \`radial-gradient(circle at 70% 45%, \${t.palette.surface}, \${t.palette.background})\`, fontFamily: t.fontFamily }}>
+      <div style={{ position: "absolute", right: t.width * 0.08, top: t.height * 0.2, width: t.height * 0.6, height: t.height * 0.6, borderRadius: "50%", background: t.palette.accent }} />
+      <div style={{ position: "absolute", left: t.width * 0.06, top: t.height * 0.28, width: t.width * 0.55, fontSize: t.height * 0.2, fontWeight: 900, lineHeight: 1, color: t.palette.text }}>${words.replace(/[`$\\{}<>]/g, "")}</div>
+    </div>
+  );
+}
+`;
+}

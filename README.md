@@ -117,6 +117,21 @@ A character that appears in more than one scene is a shared part of its own kind
 
 A scene can only place the character: where it stands, how tall it is, which pose and expression, which way it faces, and whether it is talking. It cannot stretch it, recolour it or invent a pose, and the scene's check refuses a pose or an expression the character does not have. That is what keeps one character the same in every scene, built in parallel by different runs.
 
+### Design guide
+
+Every run that builds a shared part or a scene first reads the studio's design guide, [`packages/lib/guides/scene-design.md`](packages/lib/guides/scene-design.md): one focal point per moment, a layout grid with safe margins, text sizes that read on a phone, how much of each theme colour to use, and motion that follows the narration. It ends with a checklist the run holds its test frames against before it submits. The guide is a plain file, so you can edit it to your own taste and the next scene built follows your version.
+
+### Voice
+
+**Plan → Voice** chooses the narrator and the pace for a project. There are 27 English Kokoro voices, American and British, female and male; "Listen" plays a short sample before you decide. A new project starts with the default in `pipeline.config.json` (`voice.voice`, `af_heart`).
+
+Changing the voice does not build any scene again. Each scene's narration is recorded again in the new voice the next time a preview or the final video is put together, and what happens on screen follows the new timing. Scenes keep their approval.
+
+```bash
+npm run studio -- voice <project>                  # the current voice, and the list
+npm run studio -- voice <project> bm_george slow   # a voice, and optionally slow, normal or fast
+```
+
 ### Colours and font
 
 Claude chooses six colours and a font when it writes the bible. You can choose them yourself instead, at any stage, under **Plan → Look → Change colours and font**: pick a ready-made scheme (Midnight, Paper, Chalkboard, Sunset, Forest, Black and white, Pastel, Blueprint), or set any of the six colours with a colour picker or a hex code, and type a font. A sample shows the combination before you save, and the studio warns when text would be hard to read.
@@ -179,11 +194,32 @@ npm run studio -- export <project> --format shorts --subtitles off       # no su
 A package is a folder under `exports/` in the project:
 
 - the video, and its subtitles as an `.srt` file
-- `thumbnail.jpg`, a frame from late in the first scene
-- `description.txt`: the title, your description, and the chapter times the way video sites read them (`0:00 The question`)
+- `thumbnail.jpg`: the thumbnail Claude designed, when there is one and the export is 16:9, otherwise a frame from late in the first scene
+- `description.txt`: the title, the description, and the chapter times the way video sites read them (`0:00 The question`). With upload details written, this is the full description to paste, hashtags included
+- `youtube.txt`, when upload details are written: the title, other titles to try, the description and the tags as one comma-separated line
 - `export.json`: the format, size and length, and which version of each scene went in
 
 YouTube takes Shorts of up to three minutes. A longer 9:16 export is still made, with a note, and one chapter can be exported by itself.
+
+### Thumbnail
+
+On the **Video** tab, "Design a thumbnail" has Claude design one for the video at 1280 by 720, as soon as the outline exists. It follows [`packages/lib/guides/thumbnail-design.md`](packages/lib/guides/thumbnail-design.md), the studio's guide for thumbnails that get clicked: one promise, at most three elements, no more than four words of text that add to the title instead of repeating it, one large subject, strong contrast, a reason to be curious, and nothing in the lower right corner where the video's length is shown. Claude sketches three ideas, builds the strongest, and checks it at the small size most people see it at before it saves. The studio refuses text of more than five words.
+
+The card shows the thumbnail at full size and at the small size. "Ask for changes" takes a note ("make the number bigger", "try a red background") and makes a new version; earlier versions stay in the project's `thumbnail/` folder. The guide is a plain file you can edit.
+
+```bash
+npm run studio -- thumbnail <project>
+npm run studio -- thumbnail <project> --notes "Use the question mark, not the graph"
+```
+
+### Title, description and tags
+
+"Write upload details" on the **Video** tab has Claude write what YouTube asks for when you upload: a title of up to 100 characters with two others to try, a description whose first two lines work as the search snippet, tags within YouTube's 500-character limit, and three hashtags. It works from the outline and the narration, so it is best run once the scenes are written. Every field can be edited and has a Copy button, and the chapter times are added to the description from the video itself. The details go into each export as `youtube.txt`.
+
+```bash
+npm run studio -- youtube <project>
+npm run studio -- youtube <project> --notes "Aim it at high-school students"
+```
 
 ## How Claude works on a project
 
@@ -276,6 +312,9 @@ npm run studio -- compare <project> 1.3 1 2           # what differs between ver
 npm run studio -- rollback <project> 1.3 1            # version 1 is current again; its clip is reused
 npm run studio -- export <project> --format shorts    # landscape, shorts or square; --chapter 2, --zoom 1.25
 npm run studio -- exports <project>
+npm run studio -- thumbnail <project>                 # Claude designs a thumbnail; --notes to ask for changes
+npm run studio -- youtube <project>                   # title, description and tags for the upload
+npm run studio -- voice <project> bm_george           # the narrator; add slow, normal or fast
 npm run studio -- asset add <project> photo.png --reference style --note "the colours, not the people"
 npm run studio -- keyframes <project> rival.mp4      # one frame of each shot, and a contact sheet
 npm run studio -- reference <project> 1.3 rival.mp4 --reference layout --at 12.5 --note "the split screen"
