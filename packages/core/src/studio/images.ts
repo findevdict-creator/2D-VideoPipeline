@@ -34,22 +34,36 @@ const keyFile = (studio: Studio) => path.join(studio.workspaceDir, "keys.json");
  * key pasted in the studio (kept in the workspace, outside the repository), then pipeline.config.json.
  */
 export function imageKey(studio: Studio): { key: string; from: "environment" | "studio" | "config" | null } {
-  const env = process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim();
+  const env = tidyKey(process.env.GEMINI_API_KEY ?? "") || tidyKey(process.env.GOOGLE_API_KEY ?? "");
   if (env) return { key: env, from: "environment" };
   try {
-    const saved = String((JSON.parse(fs.readFileSync(keyFile(studio), "utf8")) as { gemini?: string }).gemini ?? "").trim();
+    const saved = tidyKey(String((JSON.parse(fs.readFileSync(keyFile(studio), "utf8")) as { gemini?: string }).gemini ?? ""));
     if (saved) return { key: saved, from: "studio" };
   } catch {
     // No key saved yet.
   }
-  const config = studio.config.studio.images.apiKey.trim();
+  const config = tidyKey(studio.config.studio.images.apiKey);
   return config ? { key: config, from: "config" } : { key: "", from: null };
+}
+
+/**
+ * A key as it was pasted, without what tends to come along: spaces, line breaks, quotes,
+ * invisible characters, and a "GEMINI_API_KEY=" in front.
+ */
+export function tidyKey(pasted: string): string {
+  return pasted
+    .replace(/[\u200b-\u200d\u2060\ufeff\u00a0]/g, " ")
+    .trim()
+    .replace(/^(?:export\s+)?[A-Za-z_]+\s*[=:]\s*/, "")
+    .replace(/^["'`\u201c\u2018]+|["'`\u201d\u2019;,]+$/g, "")
+    .trim();
 }
 
 /** Keep a key in the workspace, or forget it with an empty one. */
 export function saveImageKey(studio: Studio, key: string): void {
-  const k = key.trim();
-  if (k && !/^[\w-]{20,200}$/.test(k)) throw new Error("That does not look like a Google AI Studio key. A key is one long word of letters, digits, dashes and underscores.");
+  const k = tidyKey(key);
+  // Whether it is a real key is for Google to say, the first time an image is made. Only what cannot be sent at all is refused here.
+  if (k && !/^[\x21-\x7e]+$/.test(k)) throw new Error("The key has a space or an unusual character in the middle of it. Copy it again from Google AI Studio, as one unbroken word.");
   let all: Record<string, string> = {};
   try {
     all = JSON.parse(fs.readFileSync(keyFile(studio), "utf8")) as Record<string, string>;
