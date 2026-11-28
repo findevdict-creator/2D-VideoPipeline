@@ -919,12 +919,70 @@ function AssetsTab({ snap, slug }: { snap: Snapshot; slug: string }) {
         </button>
         <input ref={input} type="file" multiple hidden onChange={(e) => e.target.files?.length && upload(e.target.files).then(() => (e.target.value = ""))} />
       </div>
+      <AddLink slug={slug} />
       <div className="grid">
         {snap.assets.map((asset) => (
           <AssetCard key={asset.id} asset={asset} />
         ))}
       </div>
     </>
+  );
+}
+
+/** Add an article or a YouTube video by its address, as what the video is about or what it should be like. */
+function AddLink({ slug }: { slug: string }) {
+  const [busy, act] = useAction();
+  const [url, setUrl] = useState("");
+  const [use, setUse] = useState("");
+  const [note, setNote] = useState("");
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const video = /youtu\.?be/i.test(url);
+  const chosen = use || (video ? "model" : "source");
+  return (
+    <section className="card">
+      <h3>Add a link</h3>
+      <p className="muted small">
+        Paste the address of an article to build the video on it, or of a YouTube video to make yours like it. An article's text is fetched and kept as a document. For a YouTube video the studio gets the title,
+        the thumbnail and the transcript, not the pictures: to have Claude follow how a video looks and moves, add a clip of it as a file and mark it as a reference.
+      </p>
+      <div className="row wrap">
+        <label className="grow">
+          Address
+          <input value={url} placeholder="https://…" onChange={(e) => (setUrl(e.target.value), setWarnings([]))} />
+        </label>
+        <label>
+          Use it as
+          <select value={chosen} onChange={(e) => setUse(e.target.value)}>
+            <option value="source">what the video is about</option>
+            <option value="model">what the video should be like</option>
+          </select>
+        </label>
+      </div>
+      <label>
+        What Claude should do with it
+        <input value={note} placeholder={chosen === "model" ? "For example: the same fast opening and one idea per scene" : "For example: explain the three findings, leave out the history"} onChange={(e) => setNote(e.target.value)} />
+      </label>
+      <button
+        className="btn primary"
+        disabled={busy || url.trim().length < 4}
+        onClick={() =>
+          act(async () => {
+            const added = await api.addLink(slug, { url: url.trim(), use: chosen, note: note.trim() || undefined });
+            setWarnings(added.warnings);
+            setUrl("");
+            setNote("");
+            setUse("");
+          }, "Added")
+        }
+      >
+        {busy ? "Fetching…" : "Add link"}
+      </button>
+      {warnings.map((w) => (
+        <p key={w} className="notice small">
+          {w}
+        </p>
+      ))}
+    </section>
   );
 }
 
@@ -1037,7 +1095,7 @@ function AssetCard({ asset }: { asset: Asset }) {
       <strong>{asset.label}</strong>
       <span className="muted small">
         {asset.kind === "model" ? "3D model" : asset.kind.replace("audio_", "")} {asset.width ? `· ${asset.width}×${asset.height}` : ""} {asset.durationSec ? `· ${duration(asset.durationSec)}` : ""}
-        {asset.document ? `· ${asset.document.pages} ${asset.document.format === "pdf" ? "pages" : "parts"} · ${asset.document.words.toLocaleString()} words ` : ""}
+        {asset.document ? `· ${asset.document.pages} ${asset.document.format === "pdf" ? "page" : "part"}${asset.document.pages === 1 ? "" : "s"} · ${asset.document.words.toLocaleString()} words ` : ""}
         {asset.model ? `· ${asset.model.parts.length} parts · ${asset.model.triangles.toLocaleString()} triangles` : ""}
       </span>
       {asset.model && (
@@ -1071,6 +1129,22 @@ function AssetCard({ asset }: { asset: Asset }) {
       {asset.document && (
         <>
           {!asset.document.hasText && <p className="notice small">This PDF is pictures of pages, like a scan, with no text in it. Claude can look at its pages one by one, which is slower and less exact than reading. A copy with real text works better.</p>}
+          {asset.link && (
+            <p className="muted small">
+              {asset.link.kind === "youtube" ? "YouTube video" : "From"} {asset.link.from ? `${asset.link.kind === "youtube" ? "by " : ""}${asset.link.from}` : ""}:{" "}
+              <a href={asset.link.url} target="_blank" rel="noreferrer">
+                open the original
+              </a>
+              {asset.link.kind === "youtube" && !asset.link.transcript ? ". Its transcript could not be fetched." : ""}
+            </p>
+          )}
+          <label className="small">
+            Use it as:
+            <select value={asset.use ?? "source"} disabled={busy} onChange={(e) => act(() => api.editAsset(asset.id, { use: e.target.value }))}>
+              <option value="source">what the video is about</option>
+              <option value="model">what the video should be like</option>
+            </select>
+          </label>
           <label className="small">
             What Claude should do with it:
             <textarea

@@ -119,8 +119,8 @@ test("runs are told about the documents, read them through tools, and say which 
   const scan = await importAsset(studio, project.id, SCAN);
   const told = (await callTool(reader, "project_get", {})).output.sources as { documents: any[]; howToUse: string };
   assert.deepEqual(told.documents.map((d) => [d.assetId, d.pages, d.hasText]), [[report.id, 3, true], [scan.id, 2, false]]);
-  assert.match(told.howToUse, /Every number, name, date and quotation the narration states must be in a document/);
-  for (const kind of ["outline", "bible", "chapter", "scene"] as const) assert.match(systemPrompt(kind), /state no number, name, date or quotation that is not in them/);
+  assert.match(told.howToUse, /Every number, name, date and quotation the narration states must be in a source document/);
+  for (const kind of ["outline", "bible", "chapter", "scene"] as const) assert.match(systemPrompt(kind), /state no number, name, date or quotation that is not in the sources/);
   assert.match(systemPrompt("chapter"), /give each scene that states facts from them its "sources"/);
 
   const read = await callTool(reader, "source_read", { assetId: report.id, fromPage: 3 });
