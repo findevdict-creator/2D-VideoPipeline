@@ -5,7 +5,8 @@
 //
 //   npm run setup:clone
 
-import { mkdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import { spawnSync } from "node:child_process";
 import { existsSync, fail, path, pythonVersion, root, run, speak, venvPython } from "./voice-env.mjs";
 
@@ -17,15 +18,22 @@ if (!v || v.major !== 3 || v.minor < 10 || v.minor > 12) fail(`The voice environ
 // Kanade, MIT licence, at the commit the studio was written against.
 const KANADE = "kanade-tokenizer @ https://github.com/frothywater/kanade-tokenizer/archive/961f20bf892c59f391d0b6c5f7b88e70ed919b99.zip";
 
-// torchaudio has to be the build that matches the PyTorch Kokoro already uses, or pip replaces PyTorch.
+// Nothing installed here may replace the PyTorch that Kokoro already uses, so every install below is
+// held to it. torchaudio is then whichever release goes with that PyTorch: the same number for older
+// ones, and for newer ones the latest, since torchaudio stopped following PyTorch's numbers.
 const torch = spawnSync(python, ["-c", "import torch; print(torch.__version__)"], { encoding: "utf8" });
 if (torch.status !== 0) fail("PyTorch is missing from the voice environment. Run: npm run setup:voice");
-const [version, build] = torch.stdout.trim().split("+");
-const index = build ? ["--index-url", `https://download.pytorch.org/whl/${build}`] : [];
-if (!run(python, ["-m", "pip", "install", `torchaudio==${version}`, ...index], { optional: true })) {
-  run(python, ["-m", "pip", "install", `torchaudio==${version}`]);
+const installed = torch.stdout.trim();
+const build = installed.split("+")[1];
+const keep = path.join(mkdtempSync(path.join(os.tmpdir(), "studio-clone-")), "keep-torch.txt");
+writeFileSync(keep, `torch==${installed}\n`);
+// A build such as "+cpu" comes from PyTorch's own index, so pip is given that one as well as the usual one.
+const held = ["-c", keep, ...(build ? ["--extra-index-url", `https://download.pytorch.org/whl/${build}`] : [])];
+if (!run(python, ["-m", "pip", "install", `torchaudio==${installed.split("+")[0]}`, ...held], { optional: true })) {
+  console.log("There is no torchaudio with that number, so the newest one that accepts this PyTorch is installed instead.");
+  run(python, ["-m", "pip", "install", "torchaudio", ...held]);
 }
-run(python, ["-m", "pip", "install", "-r", path.join(root, "python", "kokoro", "requirements-clone.txt")]);
+run(python, ["-m", "pip", "install", "-r", path.join(root, "python", "kokoro", "requirements-clone.txt"), ...held]);
 // Kanade's package says Python 3.12, but its code runs on the Python Kokoro already has here. Its own
 // requirements were installed above the normal way, so only this one package skips the version check.
 run(python, ["-m", "pip", "install", "--no-deps", ...(v.minor < 12 ? ["--ignore-requires-python"] : []), KANADE]);
