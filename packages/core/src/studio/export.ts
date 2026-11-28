@@ -8,6 +8,7 @@ import { newId, nowIso } from "./ids.js";
 import { ffmpeg } from "./media/ffmpeg.js";
 import { loadPronunciations } from "../voice/text.js";
 import { rendererFor } from "./renderers/registry.js";
+import { getRetentionCheck } from "./retention.js";
 import { captionPages } from "./renderers/sceneData.js";
 import { libHash, renderClip, templateBundle } from "./renderers/remotion.js";
 import type { RenderContext } from "./renderers/types.js";
@@ -404,6 +405,14 @@ export async function exportVideo(studio: Studio, projectId: string, opts: Expor
 
   if (format === "shorts" && durationSec > SHORTS_MAX_SEC) {
     notes.push(`This video is ${timestamp(durationSec)} long. YouTube takes Shorts of up to ${SHORTS_MAX_SEC / 60} minutes, so a longer one is treated as an ordinary video. One chapter can be exported by itself.`);
+  }
+
+  if (format === "shorts") {
+    // A Short is swiped to, not chosen: there is no title or thumbnail in front of it, so its first second makes the promise.
+    const line = getRetentionCheck(studio, project.id)?.short;
+    notes.push(
+      `A Short has no title or thumbnail in front of it, so its first second has to show the result or say the surprise.${opts.chapterId ? "" : " The whole video opens for viewers who chose it; one chapter exported by itself usually makes a better Short."}${line ? ` The retention check suggests chapter ${line.chapter}, opening on: "${line.openingLine}"` : ""}`,
+    );
   }
 
   const id = newId("ex");

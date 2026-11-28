@@ -6,6 +6,7 @@ import { listChapters } from "./store/chapters.js";
 import { latestDocument, readDocument } from "./store/documents.js";
 import { getProject, projectPaths, type Project } from "./store/projects.js";
 import { listScenes, sceneNarration } from "./store/scenes.js";
+import { getThumbnail } from "./thumbnail.js";
 
 /** What a video site asks for when a video is uploaded. */
 export interface YouTubeDetails {
@@ -86,13 +87,15 @@ export function parseDetails(text: string): YouTubeDetails {
 const PROMPT = `You write the upload details of a YouTube video: the title, the description and the tags. The video is an animated explainer; everything known about it is below. Write for the person who would enjoy this video and has not seen it yet.
 
 Title
-- At most 70 characters, with the words that matter in the first 50, because the rest is cut off in search results.
-- Say what the viewer will find out, with the words they would type to search for it. Make them curious without lying: every promise in the title is kept by the video.
+- Most viewers meet this video as a recommendation beside others, not by searching, and decide in a second. The title opens a question the viewer wants answered; it does not describe the video. "Why your phone needs a fourth satellite" is a title. "How GPS works: an explanation" is a label.
+- At most 60 characters, with the words that matter in the first 40, because the rest is cut off on a phone. Still name the subject in the words people use for it, so that search finds it.
+- When the material gives the outline's "Promise" section, the title makes that promise. When it gives the thumbnail's words and idea, the title and the thumbnail are a pair: the title never repeats a word that is on the thumbnail, and the two together say more than either alone.
+- Make them curious without lying: every promise in the title is kept by the video, and kept in its first thirty seconds. A title the video does not pay off loses the viewer and the recommendation.
 - No capitals for whole words, no "!!!", no emoji, no "you won't believe", no channel name.
-- Also give three alternative titles that take different angles: a question, a number or surprising fact, and a plain "how X works".
+- Also give three alternative titles that differ in kind, so they are worth testing against each other with YouTube's title test, which keeps the one that earns the most watch time: a question, a number or surprising fact, and a plain "how X works".
 
 Description
-- The first two lines, about 150 characters, are all most people see before "Show more", and they are what search reads first. They say what the video explains and why it matters, and contain the main search phrase in natural words.
+- The first two lines, about 150 characters, are all most people see before "Show more", and they are what search reads first. They make the same promise as the title in other words: what the video explains and why it matters, and contain the main search phrase in natural words.
 - Then a short paragraph or a few lines on what the video covers, in the order it covers it. Then, if it helps, one line on who it is for.
 - Plain sentences. No list of keywords, no hashtags, no chapter times and no links: chapter times and hashtags are added afterwards. Do not invent facts, names, sources or a call to subscribe to a channel you do not know.
 - 80 to 200 words.
@@ -121,6 +124,8 @@ export function videoBrief(studio: Studio, projectId: string, notes?: string): s
   const chapters = listChapters(studio, projectId);
   const parts = [`Working title: ${project.title}`, `What the person asked for: ${project.description}`, `Length: about ${Math.round(project.targetDurationSec / 60) || 1} minute(s). Audience: ${project.settings.audience}. Tone: ${project.settings.tone}.`];
   if (outline) parts.push(`Outline:\n${readDocument(studio, outline).slice(0, 4000)}`);
+  const thumbnail = getThumbnail(studio, projectId);
+  if (thumbnail) parts.push(`Thumbnail, already designed: the words on it are "${thumbnail.text}". ${thumbnail.idea}`.trim());
   if (chapters.length) parts.push(`Chapters:\n${chapters.map((c) => `${c.position}. ${c.title}: ${c.goal}`).join("\n")}`);
   const said = listScenes(studio, projectId)
     .map((s) => sceneNarration(studio, s))

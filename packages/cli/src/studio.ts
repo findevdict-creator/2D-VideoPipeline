@@ -9,6 +9,7 @@ import { listRuns, readRunLog } from "@studio/core/studio/store/runs";
 import { getThumbnail } from "@studio/core/studio/thumbnail";
 import { PACES, setVoice, VOICES } from "@studio/core/studio/voices";
 import { uploadSheet, writeYouTubeDetails } from "@studio/core/studio/youtube";
+import { retentionReport, writeRetentionCheck } from "@studio/core/studio/retention";
 import { Orchestrator } from "@studio/core/studio/workflow";
 import { chooseColours, type ColourChoice, deleteScene, findScene, getScene, listReviews, listScenes, listVersions, moveScene, rollbackScene, sceneLabel, setTheme } from "@studio/core/studio/store/scenes";
 import { compareVersions } from "@studio/core/studio/scenes/compare";
@@ -66,6 +67,7 @@ Usage:
   npm run studio -- voice <project> [voice] [slow|normal|fast]   show the voices, or choose who narrates and how fast
   npm run studio -- thumbnail <project>              have Claude design the thumbnail (--notes to ask for changes)
   npm run studio -- youtube <project>                have Claude write the title, description and tags for uploading (--notes)
+  npm run studio -- retention <project>              have Claude read the script for what would make a viewer leave (--notes for numbers from YouTube's analytics)
   npm run studio -- images <project> [on|off]        allow or forbid AI-generated images for one video (off unless you switch it on)
   npm run studio -- image <project> "<prompt>"       generate an image into the project's assets (--label; --again <asset id> to make that one again)
   npm run studio -- image-key <key>                  keep your Google AI Studio key in the workspace ("" forgets it)
@@ -520,6 +522,14 @@ async function run(
     const details = await writeYouTubeDetails(studio, project.id, { notes: flags.notes });
     console.log(`\n${uploadSheet(details, [])}`);
     console.log("Saved with the project. An export adds the chapter times and writes it all to youtube.txt in the export folder.");
+    return;
+  }
+  if (command === "retention") {
+    const project = getProject(studio, required(rest[0], "project"));
+    console.log("Asking Claude to read the script against the retention guide...");
+    const check = await writeRetentionCheck(studio, project.id, { notes: flags.notes });
+    console.log(`\n${retentionReport(check)}`);
+    console.log("Saved with the project. To act on a finding, send it as a review note on the outline, the chapter or the scene it names.");
     return;
   }
   if (command === "thumbnail") {

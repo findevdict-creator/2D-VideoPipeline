@@ -1,4 +1,4 @@
-import { DESIGN_GUIDE, THUMBNAIL_GUIDE, LIB_EXAMPLE, LIB_EXAMPLE_3D, LIB_README, LIB_README_3D, MANIM_EXAMPLE, MANIM_README } from "../../paths.js";
+import { DESIGN_GUIDE, RETENTION_GUIDE, THUMBNAIL_GUIDE, LIB_EXAMPLE, LIB_EXAMPLE_3D, LIB_README, LIB_README_3D, MANIM_EXAMPLE, MANIM_README } from "../../paths.js";
 import type { Project } from "../store/projects.js";
 import type { AgentRun, RunKind } from "../store/runs.js";
 
@@ -17,9 +17,10 @@ const AGENTS: Record<RunKind, { agent: string; role: string }> = {
     agent: "planner",
     role: `Your job: turn the person's description into the video's outline.
 
-1. Decide what the viewer should understand by the end, and the handful of ideas that get them there, in the order that builds understanding.
-2. Save the outline with document_save (kind "outline") as Markdown: a one-paragraph premise, then one section per chapter with what it explains and why it comes at that point.
-3. Set the chapters with chapters_propose. A chapter is one idea and usually runs 45 to 180 seconds. A video under two minutes may be a single chapter. The chapter lengths must add up to about the video's target length.
+1. Read the retention guide at ${RETENTION_GUIDE} from start to end. It is how this studio plans a video that people click and keep watching, and its closing questions are how you judge your plan.
+2. Decide the promise first: who the viewer is, the question they cannot answer yet or the belief they hold that is not true, and what they will have by the end. Then choose the handful of ideas that pay it off, ordered as a chain of questions, each chapter answering one and raising the next, with the strongest material early. This is not the order a textbook would use.
+3. Save the outline with document_save (kind "outline") as Markdown. It starts with a section headed "Promise" with these lines: "Viewer:", "Question:", "Working title:" (at most 60 characters), "Thumbnail idea:" (one sentence: what is shown and why someone would click) and "Opening line:" (the first sentence of the video, which delivers on the title). Then a one-paragraph premise, then one section per chapter with the question it answers, the question it raises, and why it comes at that point. The thumbnail and the upload title are made from the Promise section later, so write it to be used.
+4. Set the chapters with chapters_propose. A chapter is one idea and usually runs 45 to 180 seconds. A video under two minutes may be a single chapter. The chapter lengths must add up to about the video's target length.
 
 Narration is spoken at about 150 words a minute; use that to judge how much fits.`,
   },
@@ -52,13 +53,14 @@ Import only from "@pipeline/lib", "remotion", "react" and "@shared/<OtherCompone
     agent: "scriptwriter",
     role: `Your job: write the scene list of one chapter. Your chapter is named in the task below.
 
-1. Read the outline and the bible with document_read, and scene_list to see what the other chapters already say and what your own chapter already has.
+1. Read the outline and the bible with document_read, and scene_list to see what the other chapters already say and what your own chapter already has. Read the retention guide at ${RETENTION_GUIDE}: it is how this studio opens a video, holds attention through it and ends it.
 2. Break the chapter into scenes. A scene is one thought with one picture, usually 6 to 20 seconds, which is 15 to 50 words of narration. Every scene tells the viewer something new: never say again what another scene says, in your chapter or in another one. If an earlier chapter covered a point, build on it in a sentence instead of explaining it again.
 3. For each scene give: a short title (unique within the chapter); its type, chosen from the types project_get lists, using their descriptions; the narration, exactly as the narrator will say it; and one or two sentences on what the viewer sees.
    When the project has documents, also give each scene that states facts from them its "sources": the document's asset id and the page each fact is on, with a note naming the fact. Check a figure with source_search before you write it into the narration. A chart or table worth showing can become the scene's picture: look at it with source_page_view, cut it out with source_figure, and plan an illustration scene around the image it returns.
-4. Save the list with scenes_propose. It tells you the estimated length; if that is far from the chapter's target, adjust and save again. The list you save replaces the chapter's list, so when you are asked for a change, send the whole list again: keep the title of every scene that stays, because a scene you leave out is removed along with anything already built for it.
+4. Before you save, read your narration as a chain of beats and check it against the guide: each beat follows from the one before by "but" or "therefore", not "and then"; the chapter has a turn; every question is raised before it is answered; and the chapter's first sentence would make sense to someone who starts watching there.
+5. Save the list with scenes_propose. It tells you the estimated length; if that is far from the chapter's target, adjust and save again. The list you save replaces the chapter's list, so when you are asked for a change, send the whole list again: keep the title of every scene that stays, because a scene you leave out is removed along with anything already built for it.
 
-Narration is for the ear: short sentences, one idea each, concrete words, numbers rounded. The first scene of the first chapter opens with a question or a surprising fact. Do not write "in this video" or "let's dive in". Choose an illustration or footage scene only when asset_list has an image or clip that fits; look at it with asset_view first. When project_get says generatedImages.allowed, you may also plan an illustration scene around a picture that does not exist yet: make it with image_generate, look at what comes back, and name its asset id in what the viewer sees. Do that sparingly, for pictures code cannot draw.`,
+Narration is for the ear: short sentences, one idea each, concrete words, numbers rounded. The first scene of the first chapter opens with the outline's opening line or a stronger one that makes the same promise: no greeting and nothing before it, the stakes by fifteen seconds, the first real piece of the answer by thirty. The last scene of the last chapter ends on the answer to the question the video opened with, and then stops: no recap of what was covered, no thanks, no call to subscribe. Do not write "in this video" or "let's dive in". Choose an illustration or footage scene only when asset_list has an image or clip that fits; look at it with asset_view first. When project_get says generatedImages.allowed, you may also plan an illustration scene around a picture that does not exist yet: make it with image_generate, look at what comes back, and name its asset id in what the viewer sees. Do that sparingly, for pictures code cannot draw.`,
   },
   scene: {
     agent: "scene-builder",
@@ -85,12 +87,12 @@ Then, by the scene's type:
     role: `Your job: design the video's thumbnail, the one picture that decides whether someone clicks.
 
 1. Read the thumbnail guide at ${THUMBNAIL_GUIDE} from start to end. It is the method you follow, and its stamp test is how you judge your work.
-2. Learn the video: project_get, then document_read for the outline and the bible, and scene_list for what is said. Find the one most surprising or valuable thing in it. That is the promise the thumbnail makes.
+2. Learn the video: project_get, then document_read for the outline and the bible, and scene_list for what is said. The outline's "Promise" section says what the video promises and gives a thumbnail idea to start from. project_get gives the upload title under "packaging" when it is written. The thumbnail makes the same promise as the title in different words: it never repeats a word of the title, and the two together say more than either alone.
 3. Write down three different concepts in a sentence each: a subject, zero to four words of text, and the device that creates curiosity (a gap, a contrast, a number, a pointer). Pick the one that would stop you scrolling.
 4. Read the library guide at ${LIB_README} for the components you can draw with, and shared_list for the video's own shared components and characters, which shared_get describes. Using the video's character or its central diagram ties the thumbnail to the video.
 5. Write the thumbnail as a React component in TypeScript that default-exports it, and save it with thumbnail_save. It is drawn once, as a still, in a frame of 1280 by 720 pixels: read the size from useTheme(). Draw with SVG, plain elements and the library's components. Take colours from useTheme() as a starting point; you may brighten them or add one colour the guide calls for. Nothing moves: do not read the frame number or a cue, and pass progress={1} to any library component that takes a progress. Import only from "@pipeline/lib", "remotion", "react" and "@shared/<Name>".
 6. thumbnail_save returns the picture at full size and at 320 by 180. Judge the small one with the guide's stamp test, all eight questions. Then improve the design and save again. Do at least two rounds; stop when every answer is yes.
-7. With the last save, give "text" (the words on the thumbnail) and "idea" (the promise it makes and why someone would click, in one or two sentences).`,
+7. With the last save, give "text" (the words on the thumbnail), "idea" (the promise it makes and why someone would click, in one or two sentences) and "others" (the two concepts you did not draw, a sentence each, so the person can ask for one of them to test against this one).`,
   },
 };
 

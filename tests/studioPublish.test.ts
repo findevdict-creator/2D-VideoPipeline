@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { startServer } from "../packages/server/src/server.js";
-import { DESIGN_GUIDE, THUMBNAIL_GUIDE } from "../packages/core/src/paths.js";
+import { DESIGN_GUIDE, RETENTION_GUIDE, THUMBNAIL_GUIDE } from "../packages/core/src/paths.js";
 import { MockStudioRunner } from "../packages/core/src/studio/runs/mock.js";
 import { systemPrompt } from "../packages/core/src/studio/runs/prompts.js";
 import { createProject, getProject, projectPaths } from "../packages/core/src/studio/store/projects.js";
@@ -12,6 +12,7 @@ import { callTool } from "../packages/core/src/studio/tools/index.js";
 import { checkVoice, previewVoice, setVoice, VOICES } from "../packages/core/src/studio/voices.js";
 import { voiceSettings } from "../packages/core/src/studio/voice.js";
 import { fullDescription, getYouTubeDetails, parseDetails, TAGS_MAX, tidyDetails, uploadSheet, videoBrief, writeYouTubeDetails } from "../packages/core/src/studio/youtube.js";
+import { getRetentionCheck, measuredFindings, measureScript, packaging, parseRetentionCheck, retentionReport, scriptLines, writeRetentionCheck } from "../packages/core/src/studio/retention.js";
 import { pngSize } from "./helpers/media.js";
 import { NoRenderOrchestrator } from "./helpers/orchestrator.js";
 import { BROWSER, needsBrowser, tempStudio } from "./helpers/studio.js";
@@ -141,6 +142,93 @@ test("upload details are written from the video's plan and narration, kept with 
     assert.equal(getYouTubeDetails(studio, project.id)!.title, "How headphones cancel noise", "an empty title is refused and nothing changes");
     // Written again: the stand-in runner's answer replaces the edits.
     assert.equal((await writeYouTubeDetails(studio, project.id)).title, project.title);
+  } finally {
+    await server.close();
+    o.stop();
+    studio.close();
+  }
+});
+
+// ---------- Retention ----------
+
+test("the retention guide exists and the runs that plan and write are told to read it", () => {
+  const guide = fs.readFileSync(RETENTION_GUIDE, "utf8");
+  for (const heading of ["## The promise", "## Start from what the viewer believes", "## The first thirty seconds", "## Order by curiosity, not by textbook", "## But and therefore", "## The ending", "## A Short is a different thing"]) assert.ok(guide.includes(heading), heading);
+  assert.ok(systemPrompt("outline").includes(RETENTION_GUIDE));
+  assert.ok(systemPrompt("chapter").includes(RETENTION_GUIDE));
+  assert.ok(!systemPrompt("scene").includes(RETENTION_GUIDE), "a run that only draws is not sent to the story guide");
+  // The outline carries the promise that the title and the thumbnail are made from.
+  for (const line of ['"Promise"', '"Working title:"', '"Thumbnail idea:"', '"Opening line:"']) assert.ok(systemPrompt("outline").includes(line), line);
+  assert.match(systemPrompt("thumbnail"), /never repeats a word of the title/);
+  assert.match(systemPrompt("chapter"), /no recap of what was covered/);
+});
+
+test("a script is measured for how it opens, what stalls and what runs long", () => {
+  const lines = [
+    { where: "1.1 Hello", chapter: "1. Start", narration: "Hey guys, welcome to the channel. In this video we look at GPS." },
+    { where: "1.2 Middle", chapter: "1. Start", narration: Array.from({ length: 70 }, (_, i) => `word${i}`).join(" ") + "." },
+    { where: "2.1 End", chapter: "2. End", narration: "To recap, four satellites. Thanks for watching, and subscribe." },
+  ];
+  const m = measureScript(lines);
+  assert.equal(m.firstSentence, "Hey guys, welcome to the channel.");
+  assert.equal(m.opening.split(" ").length, 75);
+  assert.deepEqual(m.longScenes, ["1.2 Middle"]);
+  const findings = measuredFindings(m, lines);
+  assert.ok(findings.some((f) => f.where === "Opening" && f.severity === "high" && /a greeting/.test(f.problem)));
+  assert.ok(findings.some((f) => f.where === "Ending" && f.severity === "high" && /thanks for watching/.test(f.problem)));
+  assert.ok(findings.some((f) => f.where === "1.2 Middle" && f.severity === "low"));
+  // A clean script raises nothing.
+  const clean = [{ where: "1.1 A", chapter: "1. A", narration: "Your phone needs four satellites, not three. The fourth one tells the time." }];
+  assert.deepEqual(measuredFindings(measureScript(clean), clean), []);
+
+  // Claude's answer is brought into shape, and what was counted is added to what was judged.
+  const check = parseRetentionCheck('Here: {"summary": "It opens slowly.", "promise": "Why four satellites.", "findings": [{"where": "1.2 Middle", "problem": "Restates 1.1.", "fix": "Cut it.", "severity": "urgent"}, {"where": "x", "problem": "", "fix": ""}], "short": {"chapter": "2. End", "openingLine": "Three satellites are not enough."}}', m, findings);
+  assert.equal(check.verdict, "fix-first");
+  assert.equal(check.findings[0]!.severity, "high", "the most severe come first");
+  assert.ok(check.findings.some((f) => f.problem === "Restates 1.1." && f.severity === "medium"), "an unknown severity is medium, and an empty finding is dropped");
+  assert.deepEqual(check.short, { chapter: "2. End", openingLine: "Three satellites are not enough." });
+  assert.match(retentionReport(check), /^FIX FIRST[\s\S]*WHAT TO CHANGE[\s\S]*Best Short: chapter 2\. End/);
+  assert.equal(parseRetentionCheck('{"summary": "Good.", "findings": []}', m).verdict, "ready");
+  assert.throws(() => parseRetentionCheck("no json", m), /could not be read/);
+});
+
+test("the retention check reads the scene lists, is kept with the project, and the title and thumbnail learn of each other", async () => {
+  const studio = await tempStudio();
+  const o = new NoRenderOrchestrator(studio, new MockStudioRunner());
+  const server = await startServer(studio, { port: 0, orchestrator: o });
+  const call = async (method: string, path: string, body?: unknown) => {
+    const res = await fetch(`${server.url}${path}`, { method, headers: { "x-studio": "1", "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+    return { status: res.status, data: (await res.json()) as any };
+  };
+  try {
+    const project = createProject(studio, { description: DESCRIPTION, targetDurationSec: 60 });
+    await assert.rejects(writeRetentionCheck(studio, project.id), /no narration to check yet/);
+    assert.equal((await call("POST", `/api/projects/${project.slug}/retention`, {})).status, 400);
+    o.startStage(project.id);
+    await o.idle();
+    for (const stage of ["bible", "foundation", "chapters", "scenes"]) {
+      assert.equal(o.approveStage(project.id).stage, stage);
+      await o.idle();
+    }
+    assert.equal((await call("GET", `/api/projects/${project.slug}`)).data.retention, null);
+    const lines = scriptLines(studio, project.id);
+    assert.ok(lines.length > 0);
+    assert.match(lines[0]!.where, /^1\.1 /);
+
+    const checked = await call("POST", `/api/projects/${project.slug}/retention`, { notes: "40% at 0:30" });
+    assert.equal(checked.status, 200, JSON.stringify(checked.data));
+    assert.equal(checked.data.measures.scenes, lines.length);
+    assert.ok(checked.data.measures.firstSentence.length > 0);
+    assert.equal((await call("GET", `/api/projects/${project.slug}`)).data.retention.createdAt, checked.data.createdAt);
+    assert.equal(getRetentionCheck(studio, project.id)!.verdict, checked.data.verdict);
+
+    // The title and the thumbnail each learn of the other through the same place.
+    assert.deepEqual([packaging(studio, project.id).title, packaging(studio, project.id).thumbnailText], [null, null]);
+    await writeYouTubeDetails(studio, project.id);
+    assert.equal(packaging(studio, project.id).title, project.title);
+    const run = listRuns(studio, project.id).find((r) => r.targetKind === "outline")!;
+    const got = (await callTool({ studio, projectId: project.id, run, log: () => {} }, "project_get", {})).output as any;
+    assert.equal(got.packaging.title, project.title);
   } finally {
     await server.close();
     o.stop();

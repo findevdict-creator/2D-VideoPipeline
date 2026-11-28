@@ -23,6 +23,7 @@ import { generateImage, saveImageKey, setImagesEnabled } from "@studio/core/stud
 import { prepareDocument, setDocumentUse } from "@studio/core/studio/documents";
 import { addLink } from "@studio/core/studio/links";
 import { saveYouTubeDetails, writeYouTubeDetails } from "@studio/core/studio/youtube";
+import { writeRetentionCheck } from "@studio/core/studio/retention";
 import { getRun, readRunLog } from "@studio/core/studio/store/runs";
 import { chooseColours, deleteScene, getScene, moveScene, rollbackScene, setTheme, updatePlan } from "@studio/core/studio/store/scenes";
 import { closeSharedRequest } from "@studio/core/studio/store/shared";
@@ -133,6 +134,13 @@ export async function startServer(studio: Studio, opts: { port?: number; orchest
   route("POST", "/api/projects/:project/youtube", async ({ params, body }) => {
     try {
       return await writeYouTubeDetails(studio, getProject(studio, params.project!).id, { notes: notes(body) || undefined });
+    } catch (err) {
+      throw new Refused((err as Error).message);
+    }
+  });
+  route("POST", "/api/projects/:project/retention", async ({ params, body }) => {
+    try {
+      return await writeRetentionCheck(studio, getProject(studio, params.project!).id, { notes: notes(body) || undefined });
     } catch (err) {
       throw new Refused((err as Error).message);
     }
