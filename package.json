@@ -7,6 +7,8 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p packages/lib && tsc --noEmit -p packages/web",
     "test": "tsx --test tests/*.test.ts",
     "setup:voice": "node scripts/setup-voice.mjs",
+    "setup:clone": "node scripts/setup-clone.mjs",
+    "setup:chatterbox": "node scripts/setup-chatterbox.mjs",
     "setup:manim": "node scripts/setup-manim.mjs",
     "studio": "tsx packages/cli/src/studio.ts"
   },

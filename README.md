@@ -11,6 +11,7 @@ You need Node 22 or later, and [Claude Code](https://code.claude.com) installed 
 ```bash
 npm install
 npm run setup:voice     # once: installs Kokoro for the narration
+npm run setup:clone     # once, optional: adds voice cloning, to narrate in your own voice
 npm run setup:manim     # once, optional: installs Manim for mathematical scenes
 npm run studio          # opens the studio at http://localhost:4600
 ```
@@ -200,6 +201,31 @@ Changing the voice does not build any scene again. Each scene's narration is rec
 npm run studio -- voice <project>                  # the current voice, and the list
 npm run studio -- voice <project> bm_george slow   # a voice, and optionally slow, normal or fast
 ```
+
+### Your own voice
+
+**Plan → Voice → Clone my voice** makes a narrator from a recording of you. Record 10 to 30 seconds in the page (it shows a text to read), or choose a recording you already have, give it a name such as "My voice", and save. The voice then appears at the top of the Narrator list under **Your voices**, in every project, and is chosen per video like any other. "Listen" speaks a sample in it, and the **Test line** box lets you hear a sentence of your own instead of the usual one.
+
+A good recording is most of the result: a quiet room, the microphone close, no music or echo, one speaker, spoken the way you want your videos to sound. Only clone a voice that is yours or that you have permission to use.
+
+Each voice is listed twice, because there are two ways to make it speak:
+
+| In the list | How it works | Good for | Set up with |
+| --- | --- | --- | --- |
+| **My voice** | Kokoro speaks the line in one of its own voices, and the [Kanade](https://github.com/frothywater/kanade-tokenizer) model turns that audio into your voice. This is the method of [KokoClone](https://github.com/Ashish-Patnaik/kokoclone). | Speed. About as fast as Kokoro, and what happens on screen is timed to the words exactly as before, because the conversion keeps Kokoro's timing. The sound is yours; the rhythm and accent are Kokoro's. | `npm run setup:clone` |
+| **My voice (Chatterbox)** | [Chatterbox](https://github.com/resemble-ai/chatterbox) speaks the text itself in your voice. | Likeness. It also picks up some of how you talk. It is several times slower without an NVIDIA card, and word timings are found by listening to the result, so they are a little less exact. | `npm run setup:chatterbox` |
+
+Start with the first. If it is not close enough, change **starts from** (the Kokoro voice that speaks before the conversion: pick one of your gender with the accent nearest yours), record a cleaner clip, or switch to the Chatterbox entry.
+
+`setup:clone` adds to the environment `setup:voice` made, which must be Python 3.12 for this, and downloads about 1 GB of models the first time. It ends by making `voice-auditions/clone-test.wav`, a woman's Kokoro line re-voiced as a British man, so you can hear that conversion works. `setup:chatterbox` makes a separate environment, `.venv-chatterbox/`, because Chatterbox pins other versions of PyTorch; it is a download of several GB. With an NVIDIA card, run `npm run setup:chatterbox -- --gpu`. Restart the studio after either.
+
+Recordings are kept in the workspace, in `voices/<name>/reference.wav`, never in this repository, and nothing is sent anywhere: both engines run on this computer. Saving under a name that exists replaces that voice's recording, and narration made from the old one is recorded again when next needed. From the command line a cloned voice is named `clone.<name>`, or `clone.<name>.chatterbox`:
+
+```bash
+npm run studio -- voice <project> clone.my-voice
+```
+
+Licences, for videos you earn money from: Kokoro and KokoClone are Apache 2.0, Kanade and Chatterbox are MIT, and all four allow commercial use. Chatterbox adds an inaudible watermark to what it speaks (Resemble's Perth), which marks the audio as machine-made. YouTube asks you to disclose realistic altered or synthetic content; narration in a clone of your own voice is yours to judge against that rule.
 
 ### Colours and font
 
@@ -419,6 +445,7 @@ Projects live in a **workspace** folder outside the repository: `~/VideoStudio` 
 ```
 <workspace>/
   studio.db                      SQLite: projects, chapters, scenes and their versions, assets, runs, reviews, clips, renders, exports
+  voices/<name>/                 your cloned voices: reference.wav, the recording, and voice.json
   projects/<project>/
     assets/                      your images, clips and sounds, stored once by content
     shared/components/           the current shared parts and characters, imported by scenes as "@shared/<Name>"

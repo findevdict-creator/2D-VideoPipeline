@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { createSpeechEngine } from "../voice/engine.js";
 import { applyPronunciations, kokoroLanguage, loadPronunciations } from "../voice/text.js";
+import { resolveNarrator } from "./clones.js";
 import type { Studio } from "./studio.js";
 import { getProject, projectPaths, updateProject, type Project } from "./store/projects.js";
 
@@ -71,32 +73,53 @@ export function checkVoice(id: string): string {
 export function setVoice(studio: Studio, projectId: string, choice: { voice?: string; pace?: string }): Project {
   const project = getProject(studio, projectId);
   if (choice.pace !== undefined && !(PACES as readonly string[]).includes(choice.pace)) throw new Error(`The pace is one of: ${PACES.join(", ")}.`);
-  const kokoroVoice = choice.voice !== undefined ? checkVoice(choice.voice) : project.settings.voice.kokoroVoice;
+  // A narrator is a Kokoro voice or one the person cloned; both are kept under the same setting.
+  const kokoroVoice = choice.voice !== undefined ? resolveNarrator(studio, choice.voice).id : project.settings.voice.kokoroVoice;
   return updateProject(studio, projectId, { settings: { voice: { kokoroVoice, pace: (choice.pace as Pace | undefined) ?? project.settings.voice.pace } } });
 }
 
 const SAMPLE = "This is how your video will sound. Each satellite carries a clock, and your phone listens for it.";
+const SAMPLE_MAX = 400;
 
 /**
  * A short recording in a voice, to hear it before choosing. Kept in the project, so asking
- * for the same voice twice records once. Returns the file, relative to the project folder.
+ * for the same voice twice records once. `text` is a line of your own to hear instead of the
+ * usual one. Returns the file, relative to the project folder.
  */
-export async function previewVoice(studio: Studio, projectId: string, choice: { voice?: string; pace?: string }, log: (m: string) => void = () => {}): Promise<{ file: string; voice: string; pace: Pace; silent: boolean }> {
+export async function previewVoice(studio: Studio, projectId: string, choice: { voice?: string; pace?: string; text?: string }, log: (m: string) => void = () => {}): Promise<{ file: string; voice: string; pace: Pace; silent: boolean }> {
   const project = getProject(studio, projectId);
   const p = projectPaths(studio, project);
-  const id = checkVoice(choice.voice ?? project.settings.voice.kokoroVoice);
+  const narrator = resolveNarrator(studio, choice.voice ?? project.settings.voice.kokoroVoice);
+  const id = narrator.id;
   const pace = (choice.pace as Pace | undefined) ?? project.settings.voice.pace;
   if (!(PACES as readonly string[]).includes(pace)) throw new Error(`The pace is one of: ${PACES.join(", ")}.`);
+  const line = choice.text?.trim().replace(/\s+/g, " ");
+  if (line && line.length > SAMPLE_MAX) throw new Error(`The test line is ${line.length} characters long. Keep it under ${SAMPLE_MAX}.`);
   const v = studio.config.voice;
   const speed = Math.round(v.speed * v.paceSpeed[pace] * 1000) / 1000;
-  const file = path.join(p.work, "voice-preview", `${id}-${String(speed).replace(".", "_")}-${v.engine}.wav`);
+  // A clone's sample is tied to its clip, the voice it starts from and the line, so changing any of them records a new one.
+  const mark = [narrator.clone ? `${narrator.clone.voice.clipHash}${narrator.kokoroVoice}` : "", line ?? ""].join("|");
+  const suffix = mark === "|" ? "" : `-${createHash("sha1").update(mark).digest("hex").slice(0, 10)}`;
+  const file = path.join(p.work, "voice-preview", `${id}-${String(speed).replace(".", "_")}-${v.engine}${suffix}.wav`);
   if (!fs.existsSync(file)) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const partial = `${file}.part.wav`;
     await createSpeechEngine(studio.config).speak(
       {
         sampleRate: v.sampleRate,
-        items: [{ id: "preview", text: applyPronunciations(SAMPLE, await loadPronunciations(studio.config)), voice: id, lang: kokoroLanguage(v.language, id), speed, padBeforeSec: 0.1, padAfterSec: 0.2, outFile: partial }],
+        items: [
+          {
+            id: "preview",
+            text: applyPronunciations(line || SAMPLE, await loadPronunciations(studio.config)),
+            voice: narrator.kokoroVoice,
+            lang: kokoroLanguage(v.language, narrator.kokoroVoice),
+            speed,
+            padBeforeSec: 0.1,
+            padAfterSec: 0.2,
+            outFile: partial,
+            ...(narrator.clone ? { clone: { engine: narrator.clone.engine, referenceFile: narrator.clone.referenceFile } } : {}),
+          },
+        ],
       },
       log,
     );

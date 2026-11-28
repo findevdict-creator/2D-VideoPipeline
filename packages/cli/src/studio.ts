@@ -8,6 +8,7 @@ import { createProject, getProject, listProjects, projectPaths, updateProject } 
 import { listRuns, readRunLog } from "@studio/core/studio/store/runs";
 import { getThumbnail } from "@studio/core/studio/thumbnail";
 import { PACES, setVoice, VOICES } from "@studio/core/studio/voices";
+import { cloneId, listClones } from "@studio/core/studio/clones";
 import { uploadSheet, writeYouTubeDetails } from "@studio/core/studio/youtube";
 import { retentionReport, writeRetentionCheck } from "@studio/core/studio/retention";
 import { Orchestrator } from "@studio/core/studio/workflow";
@@ -507,6 +508,9 @@ async function run(
     if (!words.length) {
       console.log(`${project.slug} is narrated by ${project.settings.voice.kokoroVoice} at a ${project.settings.voice.pace} pace.\n`);
       for (const accent of ["American", "British"] as const) for (const gender of ["female", "male"] as const) console.log(`${accent}, ${gender}: ${VOICES.filter((v) => v.accent === accent && v.gender === gender).map((v) => v.id).join(", ")}`);
+      const clones = listClones(studio);
+      if (clones.length) console.log(`Your voices: ${clones.map((c) => `${cloneId(c.slug)} (${c.name})`).join(", ")}. Add .chatterbox to one to have Chatterbox speak it.`);
+      else console.log(`Your own voice: clone it in the studio's page, under Plan → Voice → Clone my voice.`);
       console.log(`\nChoose one: npm run studio -- voice ${project.slug} bm_george slow`);
       return;
     }

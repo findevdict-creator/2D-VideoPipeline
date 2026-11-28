@@ -52,7 +52,7 @@ export async function importProduction(studio: Studio, productionDir: string): P
   const voiceover: Voiceover | undefined = fs.existsSync(voiceFile) ? readJson(voiceFile, VoiceoverSchema) : undefined;
   const settings = voiceSettings(studio, project);
   // Recorded audio is only reused when it was made with the settings the studio would use now.
-  const sameVoice = !!voiceover && (Object.keys(settings) as (keyof typeof settings)[]).every((k) => voiceover.settings[k] === settings[k]);
+  const sameVoice = !!voiceover && Object.entries(settings).every(([k, value]) => (voiceover.settings as Record<string, unknown>)[k] === value);
   const pronunciations = await loadPronunciations(studio.config);
 
   let withCode = 0;

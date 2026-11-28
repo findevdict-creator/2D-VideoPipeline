@@ -1,0 +1,3 @@
+# Chatterbox, the second voice cloning engine (npm run setup:chatterbox). MIT licence.
+chatterbox-tts==0.1.7
+soundfile>=0.12
