@@ -10,10 +10,13 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.327",
+    "@napi-rs/canvas": "^0.1.100",
     "@pipeline/lib": "*",
     "@remotion/bundler": "4.0.544",
     "@remotion/captions": "4.0.544",
     "@remotion/renderer": "4.0.544",
+    "mammoth": "^1.13.0",
+    "pdfjs-dist": "^4.10.38",
     "zod": "^4.6.7"
   }
 }

@@ -5,6 +5,7 @@ import { newId, nowIso } from "../ids.js";
 import { guessAsset, type AssetKind } from "../model/asset.js";
 import { probe } from "../media/ffmpeg.js";
 import { inspectModel, type ModelInfo } from "../assets/gltf.js";
+import { documentFormat, readDocument, type DocumentInfo } from "../assets/document.js";
 import { imageSize } from "../media/imageSize.js";
 import type { Studio } from "../studio.js";
 import { fromRow, fromRows } from "./mapping.js";
@@ -72,6 +73,14 @@ export async function importAsset(studio: Studio, projectId: string, file: strin
     model = inspectModel(file, { triangleBudget: studio.config.studio.modelTriangleBudget });
     if (model.errors.length) throw new Error(`"${name}" cannot be used as it is:\n  - ${model.errors.join("\n  - ")}`);
   }
+  // A document is read before it is stored too: one that cannot be opened is refused with the reason.
+  let document: DocumentInfo | undefined;
+  if ((opts.kind ?? guess.kind) === "document") {
+    const read = await readDocument(file, documentFormat(name)).catch((err: Error) => {
+      throw new Error(`"${name}" cannot be used as it is: ${err.message}`);
+    });
+    document = read.info;
+  }
   const target = path.join(p.assets, `${sha256.slice(0, 24)}${ext}`);
   fs.mkdirSync(p.assets, { recursive: true });
   fs.copyFileSync(file, target);
@@ -107,7 +116,7 @@ export async function importAsset(studio: Studio, projectId: string, file: strin
       w: info?.width ?? null,
       h: info?.height ?? null,
       dur: kind === "image" ? null : (info?.durationSec ?? null),
-      meta: JSON.stringify(model ? { model } : info ? { fps: info.fps, hasAudio: info.hasAudio, codec: info.codec } : {}),
+      meta: JSON.stringify(model ? { model } : document ? { document } : info ? { fps: info.fps, hasAudio: info.hasAudio, codec: info.codec } : {}),
       label: opts.label ?? name.replace(/\.[^.]+$/, ""),
       note: opts.sourceNote ?? "",
       stamp: nowIso(),

@@ -111,6 +111,23 @@ Any image or clip can also be marked as a **reference** for style, layout or mot
 - **For one scene**, open the scene and attach it under "References for this scene". For a video you pick the moment to follow from one frame of each shot. The scene's builder is shown that frame first, and the scene drawer then shows the reference next to what was built, so you can judge whether the composition was followed.
 - **Reference videos are read shot by shot.** The studio finds the cuts, takes the calmest frame of each shot and lays them out on a contact sheet with their times ("Show one frame of each shot" on the asset, or `npm run studio -- keyframes <project> <asset>`). Claude looks at the sheet and at single frames instead of guessing from a video's first picture.
 
+### Reports and other documents
+
+A video can be built on a document: a report to make a case from, a paper to explain, your own notes. Drop it under **Assets** as a `.pdf`, `.docx`, `.txt` or `.md` file, before you approve the outline if the whole video should rest on it.
+
+- **Claude reads it before it writes.** The outline, the bible and every chapter's script are written by runs that are told the document is the material, read it page by page, and can search it for a figure or a name. They are told to state no number, name, date or quotation that is not in it.
+- **Say what to do with it.** Each document has a note, "What Claude should do with it": "argue the case in section 3", or "background only". Without a note it is treated as what the video is about.
+- **Its charts can be shown.** Claude can look at any page of a PDF as a picture, cut out a chart or a table, and use it as an image scene with a camera move and labels on top. The image is kept under Assets and says which page it came from.
+- **You can check the facts.** A scene that takes facts from a document records the pages they are on. The scene drawer lists them under "Where its facts come from", each a link that opens the PDF at that page.
+
+A PDF that is only pictures of pages, such as a scan, has no text to read or search. The studio says so when you add it, and Claude then looks at its pages one by one, which is slower and less exact; a copy with real text works better. A password-protected PDF is refused. Word and text files have no pages, so they are cut into parts of about a page each, and cannot be looked at as pictures.
+
+```bash
+npm run studio -- asset add <project> report.pdf --note "Argue for the recommendation in section 3"
+```
+
+The instruction to stick to the document reduces invented facts but cannot rule them out, so check the page references on anything that matters.
+
 ### AI-generated images
 
 The studio can make pictures with Google's Gemini image models (known as Nano Banana), for things code cannot draw: a photograph, a painting, a place, a texture. It is **off for every video until you switch it on** under **Assets → AI images → Allow AI-generated images in this video**, because each image is charged to your Google key.

@@ -38,6 +38,7 @@ import {
 } from "../store/scenes.js";
 import { characterInfo, findShared, listShared, planShared, readShared, requestShared, saveShared, setSharedPreview, SHARED_KINDS, SHARED_NAME, type SharedAsset } from "../store/shared.js";
 import { cueFrames, ensureVoice } from "../voice.js";
+import { checkCrop, checkSourceRefs, documentInfo, figureFromPage, listSources, pagePicture, readSource, searchSources } from "../documents.js";
 import { generatedInfo, generateImage, IMAGE_ASPECTS, imageStatus } from "../images.js";
 import { defineTool, ToolRefusal, type ToolContext, type ToolDef } from "./types.js";
 
@@ -151,6 +152,15 @@ const tools: ToolDef<any>[] = [
         theme: project.settings.theme,
         sceneTypes: Object.fromEntries(types.map((t) => [t, SCENE_TYPE_GUIDE[t]])),
         generatedImages: imageGuide(studio, project.id),
+        ...(listSources(studio, project.id).length
+          ? {
+              sources: {
+                documents: listSources(studio, project.id),
+                howToUse:
+                  "These are documents the person gave as the material for this video. Read them before you write anything: source_read gives the text page by page, source_search finds a figure or a name, and source_page_view shows a page of a PDF, which is how a chart, a table or a scanned page is read. Build the video's case from them. Every number, name, date and quotation the narration states must be in a document as you state it; do not round a figure into a different claim, and do not add facts from memory as if the document said them.",
+              },
+            }
+          : {}),
         references: listProjectReferences(studio, project.id).map((r) => ({
           ...r,
           label: assets.get(r.assetId)?.label,
@@ -221,6 +231,9 @@ const tools: ToolDef<any>[] = [
         status: scene.status,
         type: scene.type,
         plan: scene.plan,
+        ...(scene.plan.sources?.length
+          ? { sourcesNote: "plan.sources names the pages of the project's documents this scene's facts come from. Read those pages with source_read (or source_page_view for a chart) before you build, and show figures exactly as the document gives them." }
+          : {}),
         spec: version?.spec ?? null,
         version: version?.version ?? null,
         reviewNotes: listReviews(studio, "scene", scene.id).filter((r) => r.decision === "revise").map((r) => ({ onVersion: r.targetVersion, notes: r.notes })),
@@ -270,11 +283,78 @@ const tools: ToolDef<any>[] = [
           height: a.height,
           durationSec: a.durationSec,
           note: a.sourceNote,
+          ...(documentInfo(a) ? { document: documentInfo(a) } : {}),
           ...(generatedInfo(a) ? { generated: { prompt: generatedInfo(a)!.prompt, by: generatedInfo(a)!.by } } : {}),
           reference: refs.get(a.id) ? { role: refs.get(a.id)!.role, note: refs.get(a.id)!.note } : null,
           ...(a.meta.model ? { model: modelSummary(a.meta.model as ModelInfo) } : {}),
         })),
       };
+    },
+  }),
+  defineTool({
+    name: "source_read",
+    description:
+      "Read a document the person gave as material for the video, page by page. A long document comes in steps: the answer says which page to carry on from. Read all of a document you build on, not only its first pages.",
+    input: z.object({ assetId: z.string(), fromPage: z.number().int().min(1).default(1), toPage: z.number().int().min(1).optional() }),
+    handler: async (ctx, { assetId, fromPage, toPage }) => {
+      try {
+        const got = await readSource(ctx.studio, ctx.projectId, assetId, fromPage, toPage);
+        return { ...got, ...(got.hasText ? {} : { note: "This PDF holds pictures of pages and no text, as a scan does. Look at its pages with source_page_view instead." }) };
+      } catch (err) {
+        throw new ToolRefusal((err as Error).message);
+      }
+    },
+  }),
+  defineTool({
+    name: "source_search",
+    description: "Find the pages of the project's documents that hold given words, such as a figure, a name or a term, each with the text around the match. Use it to check a fact before the narration states it.",
+    input: z.object({ query: z.string().min(2).max(200), assetId: z.string().optional().describe("Left out: every document") }),
+    handler: async (ctx, { query, assetId }) => {
+      try {
+        return await searchSources(ctx.studio, ctx.projectId, query, assetId);
+      } catch (err) {
+        throw new ToolRefusal((err as Error).message);
+      }
+    },
+  }),
+  defineTool({
+    name: "source_page_view",
+    description:
+      "Look at one page of a PDF as a picture, or at a part of it. This is how a chart, a table, a diagram or a scanned page is read. With a crop you see the part you would cut out, before you make it an image with source_figure.",
+    input: z.object({
+      assetId: z.string(),
+      page: z.number().int().min(1),
+      crop: z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() }).optional().describe("A part of the page, as fractions of its width and height from the top left corner: { x: 0.1, y: 0.3, width: 0.8, height: 0.4 }"),
+    }),
+    handler: async (ctx, { assetId, page, crop }) => {
+      try {
+        const picture = await pagePicture(ctx.studio, ctx.projectId, assetId, page, { crop: checkCrop(crop) });
+        return { page, width: picture.width, height: picture.height, images: [{ file: picture.file, caption: crop ? `Page ${page}, the part from ${Math.round(crop.x * 100)}% across and ${Math.round(crop.y * 100)}% down.` : `Page ${page}, whole.` }] };
+      } catch (err) {
+        throw new ToolRefusal((err as Error).message);
+      }
+    },
+  }),
+  defineTool({
+    name: "source_figure",
+    description:
+      "Make an image asset from a page of a PDF, or from a part of it such as one chart or table, so an illustration scene can show the real thing with labels on top. Look at the crop with source_page_view first, and cut close: the figure and its caption, not the text around it. Returns the new image's asset id.",
+    writers: ["chapter", "scene"],
+    input: z.object({
+      assetId: z.string(),
+      page: z.number().int().min(1),
+      crop: z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() }).optional(),
+      label: z.string().min(2).max(60).describe("A short name for it under Assets, such as: Figure 1, oxygen by year"),
+    }),
+    handler: async (ctx, input) => {
+      scopeOf(ctx, ["chapter", "scene"]);
+      try {
+        const image = await figureFromPage(ctx.studio, ctx.projectId, { ...input, crop: checkCrop(input.crop) });
+        const file = projectPaths(ctx.studio, getProject(ctx.studio, ctx.projectId)).abs(image.path);
+        return { assetId: image.id, label: image.label, width: image.width, height: image.height, images: [{ file, caption: `${image.label}: the image as scenes will show it.` }] };
+      } catch (err) {
+        throw new ToolRefusal((err as Error).message);
+      }
     },
   }),
   defineTool({
@@ -284,6 +364,7 @@ const tools: ToolDef<any>[] = [
     handler: async (ctx, { assetId, frames }) => {
       const asset = listAssets(ctx.studio, ctx.projectId).find((a) => a.id === assetId);
       if (!asset) throw new ToolRefusal(`There is no asset with the id "${assetId}" in this project. Use asset_list to see what exists.`);
+      if (asset.kind === "document") throw new ToolRefusal(`"${asset.label}" is a document. Read it with source_read, and look at a page of it with source_page_view.`);
       const previews = await assetPreview(ctx.studio, assetId, { frames });
       return {
         label: asset.label,
@@ -584,6 +665,7 @@ const tools: ToolDef<any>[] = [
         const twin = elsewhere.find((other) => sayTheSame(sceneNarration(studio, other), s.narration));
         if (twin) problems.push(`scenes.${i}: "${s.title}" says the same as scene ${sceneLabel(studio, twin)}, "${twin.title}", in another chapter. Do not repeat it: leave it out, or say what is new here.`);
       });
+      scenes.forEach((s, i) => problems.push(...checkSourceRefs(studio, project.id, s.sources, `scenes.${i}`)));
       const hasKind = (kind: string) => listAssets(studio, project.id).some((a) => a.kind === kind);
       if (scenes.some((s) => s.type === "illustration") && !hasKind("image")) problems.push("An illustration scene needs an image, and this project has none. Use another type.");
       if (scenes.some((s) => s.type === "footage") && !hasKind("video")) problems.push("A footage scene needs a video clip, and this project has none. Use another type.");
