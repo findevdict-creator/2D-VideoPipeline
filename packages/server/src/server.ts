@@ -20,7 +20,8 @@ import { getChapter } from "@studio/core/studio/store/chapters";
 import { createProject, getProject, updateProject } from "@studio/core/studio/store/projects";
 import { previewVoice, setVoice } from "@studio/core/studio/voices";
 import { generateImage, saveImageKey, setImagesEnabled } from "@studio/core/studio/images";
-import { prepareDocument } from "@studio/core/studio/documents";
+import { prepareDocument, setDocumentUse } from "@studio/core/studio/documents";
+import { addLink } from "@studio/core/studio/links";
 import { saveYouTubeDetails, writeYouTubeDetails } from "@studio/core/studio/youtube";
 import { getRun, readRunLog } from "@studio/core/studio/store/runs";
 import { chooseColours, deleteScene, getScene, moveScene, rollbackScene, setTheme, updatePlan } from "@studio/core/studio/store/scenes";
@@ -302,9 +303,26 @@ export async function startServer(studio: Studio, opts: { port?: number; orchest
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+  route("POST", "/api/projects/:project/links", async ({ params, body }) => {
+    const project = getProject(studio, params.project!);
+    const use = body?.use === "source" || body?.use === "model" ? body.use : undefined;
+    try {
+      const added = await addLink(studio, project.id, { url: String(body?.url ?? ""), use, note: typeof body?.note === "string" ? body.note : undefined });
+      return { id: added.asset.id, label: added.asset.label, thumbnailId: added.thumbnail?.id ?? null, warnings: added.warnings };
+    } catch (err) {
+      throw new Refused((err as Error).message);
+    }
+  });
   route("PATCH", "/api/assets/:asset", ({ params, body }) => {
     const asset = getAsset(studio, params.asset!);
     if (body.label !== undefined || body.sourceNote !== undefined) updateAsset(studio, asset.id, { label: body.label, sourceNote: body.sourceNote });
+    if (body.use !== undefined) {
+      try {
+        setDocumentUse(studio, asset.projectId, asset.id, String(body.use));
+      } catch (err) {
+        throw new Refused((err as Error).message);
+      }
+    }
     if (body.reference !== undefined) {
       const role = body.reference?.role ?? null;
       if (role !== null && !(REFERENCE_ROLES as readonly string[]).includes(role)) throw new Refused(`A reference is one of: ${REFERENCE_ROLES.join(", ")}.`);

@@ -157,7 +157,7 @@ const tools: ToolDef<any>[] = [
               sources: {
                 documents: listSources(studio, project.id),
                 howToUse:
-                  "These are documents the person gave as the material for this video. Read them before you write anything: source_read gives the text page by page, source_search finds a figure or a name, and source_page_view shows a page of a PDF, which is how a chart, a table or a scanned page is read. Build the video's case from them. Every number, name, date and quotation the narration states must be in a document as you state it; do not round a figure into a different claim, and do not add facts from memory as if the document said them.",
+                  "These are documents the person gave for this video: reports, articles they linked, transcripts of videos. Each says how it is to be used. One with use \"source\" is what the video is about; one with use \"model\" is a piece the person wants this video to be like, whose structure, pacing and tone you follow without taking facts or sentences from it. Read them before you write anything: source_read gives the text page by page, source_search finds a figure or a name, and source_page_view shows a page of a PDF, which is how a chart, a table or a scanned page is read. Build the video's case from the sources. Every number, name, date and quotation the narration states must be in a source document as you state it; do not round a figure into a different claim, and do not add facts from memory as if the document said them.",
               },
             }
           : {}),

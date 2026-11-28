@@ -9,6 +9,32 @@ export type { Crop, DocumentInfo } from "./assets/document.js";
 
 export const documentInfo = (asset: Pick<Asset, "meta">): DocumentInfo | undefined => asset.meta.document as DocumentInfo | undefined;
 
+/**
+ * What a document is to the video. A "source" is what the video is about: its facts come
+ * from it. A "model" is something the video should be like, such as another video's
+ * transcript: its structure and tone are followed, and nothing is taken from it as fact.
+ */
+export const DOCUMENT_USES = ["source", "model"] as const;
+export type DocumentUse = (typeof DOCUMENT_USES)[number];
+
+export const documentUse = (asset: Pick<Asset, "meta">): DocumentUse => (asset.meta.use === "model" ? "model" : "source");
+
+export function setDocumentUse(studio: Studio, projectId: string, assetId: string, use: string): Asset {
+  if (!(DOCUMENT_USES as readonly string[]).includes(use)) throw new Error(`A document is used as one of: ${DOCUMENT_USES.join(", ")}.`);
+  return updateAsset(studio, sourceOf(studio, projectId, assetId).asset.id, { meta: { use } });
+}
+
+const DEFAULT_NOTE: Record<DocumentUse, string> = {
+  source: "(the person left no note: treat it as the material the video is about)",
+  model: "(the person left no note: make the video like this one in how it is built)",
+};
+
+const USE_GUIDE: Record<DocumentUse, string> = {
+  source: "What the video is about. Its facts come from here.",
+  model:
+    "Something the person wants this video to be like, not what it is about. Study how it opens, how it orders its points, how long it stays on each, and how it sounds, and build this video the same way on this video's own subject. Take no facts from it, and copy none of its sentences.",
+};
+
 /** Where a scene's facts came from: a page of one of the project's documents. */
 export interface SourceRef {
   assetId: string;
@@ -57,7 +83,9 @@ export async function prepareDocument(studio: Studio, asset: Asset): Promise<voi
 export function listSources(studio: Studio, projectId: string) {
   return listAssets(studio, projectId, "document").map((a) => {
     const info = documentInfo(a)!;
-    return { assetId: a.id, label: a.label, format: info.format, pages: info.pages, words: info.words, hasText: info.hasText, whatToDoWithIt: a.sourceNote || "(the person left no note: treat it as the material the video is about)" };
+    const use = documentUse(a);
+    const link = a.meta.link as { url?: string; kind?: string } | undefined;
+    return { assetId: a.id, label: a.label, format: info.format, pages: info.pages, words: info.words, hasText: info.hasText, use, whatThatMeans: USE_GUIDE[use], ...(link?.url ? { from: link.url } : {}), whatToDoWithIt: a.sourceNote || DEFAULT_NOTE[use] };
   });
 }
 

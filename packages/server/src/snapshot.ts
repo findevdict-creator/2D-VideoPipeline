@@ -8,7 +8,8 @@ import { listDocuments, readDocument } from "@studio/core/studio/store/documents
 import { getThumbnail } from "@studio/core/studio/thumbnail";
 import { PACES, VOICES } from "@studio/core/studio/voices";
 import { generatedInfo, IMAGE_ASPECTS, imageStatus } from "@studio/core/studio/images";
-import { documentInfo, pageThumbnail } from "@studio/core/studio/documents";
+import { documentInfo, documentUse, pageThumbnail } from "@studio/core/studio/documents";
+import { linkInfo } from "@studio/core/studio/links";
 import { getYouTubeDetails } from "@studio/core/studio/youtube";
 import { FONTS, PALETTE_USE, PALETTES, paletteWarnings } from "@studio/core/studio/model/project";
 import { getProject, listProjects, projectPaths, type Project } from "@studio/core/studio/store/projects";
@@ -70,7 +71,9 @@ export function sceneCard(studio: Studio, project: Project, scene: Scene) {
     sources: (scene.plan.sources ?? []).map((ref) => {
       const doc = findAsset(studio, project.id, ref.assetId);
       const url = doc ? fileUrl(studio, project, doc.path) : null;
-      return { ...ref, label: doc?.label ?? "(removed)", url: url && doc?.mime === "application/pdf" ? `${url}#page=${ref.page}` : url };
+      const link = doc ? linkInfo(doc) : undefined;
+      // A linked article is checked where it was published; a PDF opens at the page.
+      return { ...ref, label: doc?.label ?? "(removed)", url: link && link.kind !== "pdf" ? link.url : url && doc?.mime === "application/pdf" ? `${url}#page=${ref.page}` : url };
     }),
     version: current?.version ?? null,
     approvedVersion: versions.find((v) => v.id === scene.approvedVersionId)?.version ?? null,
@@ -223,6 +226,10 @@ export function projectSnapshot(studio: Studio, orchestrator: Orchestrator, idOr
         reference: refs.get(a.id) ?? null,
         /** For a report or other document: how long it is and whether its text can be read. */
         document: documentInfo(a) ?? null,
+        /** For a document: whether the video is about it ("source") or should be like it ("model"). */
+        use: a.kind === "document" ? documentUse(a) : null,
+        /** For a document added by its address: where it came from. */
+        link: linkInfo(a) ?? null,
         /** For an image cut from a document: which one, and the page. */
         fromDocument: (a.meta.fromDocument as { assetId: string; page: number } | undefined) ?? null,
         /** For an image an AI model made: what it was asked for. */

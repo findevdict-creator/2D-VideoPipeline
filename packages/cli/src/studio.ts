@@ -22,6 +22,7 @@ import { LOOKS, MAX_DURATION_SEC, MIN_DURATION_SEC, PALETTE_KEYS, PALETTE_USE, P
 import { assemble } from "@studio/core/studio/assemble";
 import { recommendLength } from "@studio/core/studio/length";
 import { prepareDocument } from "@studio/core/studio/documents";
+import { addLink } from "@studio/core/studio/links";
 import { generateImage, imageStatus, saveImageKey, setImagesEnabled } from "@studio/core/studio/images";
 import { gpuReport } from "@studio/core/studio/renderers/gpu";
 import { checkScene, renderSceneClip, renderSceneStills } from "@studio/core/studio/scenes/render";
@@ -47,6 +48,7 @@ Usage:
   npm run studio -- scenes <project>                 list a project's scenes and their status
   npm run studio -- assets <project>                 list a project's images, clips, sounds and models
   npm run studio -- asset add <project> <file...>    add files to a project: images, clips, sounds, models, or a report as .pdf, .docx, .txt or .md (--label, --note, --reference style|layout|motion)
+  npm run studio -- link <project> <address>         add an article or a YouTube video by its address (--about: the video is about it; --like: make the video like it; --note)
   npm run studio -- keyframes <project> <asset>      one frame of each shot of a reference video, and a contact sheet
   npm run studio -- reference <project> <scene> <asset>   attach a reference to one scene (--reference <role>, --at <seconds>, --note; "none" as the role removes it)
   npm run studio -- look <project> <clean|hand-drawn>     change the look; scenes already drawn are marked out of date
@@ -112,6 +114,8 @@ async function main() {
       "no-open": { type: "boolean", default: false },
       reference: { type: "string" },
       again: { type: "string" },
+      like: { type: "boolean", default: false },
+      about: { type: "boolean", default: false },
       note: { type: "string" },
       at: { type: "string" },
       volume: { type: "string" },
@@ -143,7 +147,7 @@ async function run(
   studio: Studio,
   command: string,
   rest: string[],
-  flags: { final: boolean; yes?: boolean; chapter?: string; label?: string; reference?: string; again?: string; note?: string; minutes?: string; seconds?: string; title?: string; notes?: string; at?: string; volume?: string; "pause-volume"?: string; steady?: boolean; format?: string; zoom?: string; fit?: string; subtitles?: string },
+  flags: { final: boolean; yes?: boolean; chapter?: string; label?: string; reference?: string; again?: string; like?: boolean; about?: boolean; note?: string; minutes?: string; seconds?: string; title?: string; notes?: string; at?: string; volume?: string; "pause-volume"?: string; steady?: boolean; format?: string; zoom?: string; fit?: string; subtitles?: string },
 ) {
   const log = (message: string) => console.log(message);
   const quality = flags.final ? "final" : "preview";
@@ -298,6 +302,16 @@ async function run(
         for (const warning of model.warnings) console.log(`  Warning: ${warning}`);
       }
     }
+    return;
+  }
+  if (command === "link") {
+    const project = getProject(studio, required(rest[0], "project"));
+    console.log("Fetching...");
+    const added = await addLink(studio, project.id, { url: required(rest[1], "address"), use: flags.like ? "model" : flags.about ? "source" : undefined, note: flags.note });
+    const doc = added.asset.meta.document as { pages: number; words: number };
+    console.log(`${added.asset.id}  ${added.asset.label}  (${doc.words.toLocaleString("en-US")} words, used as ${added.asset.meta.use === "model" ? "what the video should be like" : "what the video is about"})`);
+    if (added.thumbnail) console.log(`${added.thumbnail.id}  its thumbnail, kept as a style reference`);
+    for (const warning of added.warnings) console.log(`Note: ${warning}`);
     return;
   }
   if (command === "keyframes") {

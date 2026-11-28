@@ -128,6 +128,24 @@ npm run studio -- asset add <project> report.pdf --note "Argue for the recommend
 
 The instruction to stick to the document reduces invented facts but cannot rule them out, so check the page references on anything that matters.
 
+### Links: an article to build on, a video to be like
+
+Under **Assets → Add a link**, paste an address and choose how to use it:
+
+- **What the video is about.** For an article, a blog post or a link to a PDF. The studio fetches the page, keeps the article's text without the menus and adverts around it, and from there it is a document like any other: Claude reads it before it plans, takes its facts from it, and scenes record where in it their facts are.
+- **What the video should be like.** For a piece whose shape you want: how it opens, how it orders its points, its pace and tone. Claude follows how it is built on your video's own subject, takes no facts from it and copies none of its wording. A YouTube link starts out as this.
+
+Any document can be switched between the two on its card, and each has the note "What Claude should do with it".
+
+**YouTube.** From a link the studio gets what YouTube publishes about a video: its title, its channel, its thumbnail (kept as an image and marked as a style reference) and its captions as a transcript with times. It does not download the video, so Claude learns how the video is told, not how it looks or moves. To have Claude follow the look and the motion shot by shot, add a clip of the video as a file and mark it as a style or motion reference. When YouTube does not hand over the captions, the studio says so: open the video, choose "Show transcript", copy the text into a `.txt` file and add that.
+
+**Pages that cannot be fetched.** Member-only Medium stories, pages behind a login, and sites that turn away anything but a person's browser are refused or come back nearly empty. The studio tells you when that happens. Open the page in your browser, print it to PDF, and add the PDF.
+
+```bash
+npm run studio -- link <project> https://example.com/an-article --note "Explain the three findings"
+npm run studio -- link <project> https://youtu.be/<id> --like --note "The same fast opening"
+```
+
 ### AI-generated images
 
 The studio can make pictures with Google's Gemini image models (known as Nano Banana), for things code cannot draw: a photograph, a painting, a place, a texture. It is **off for every video until you switch it on** under **Assets → AI images → Allow AI-generated images in this video**, because each image is charged to your Google key.
