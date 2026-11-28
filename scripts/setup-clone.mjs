@@ -12,12 +12,10 @@ import { existsSync, fail, path, pythonVersion, root, run, speak, venvPython } f
 const python = venvPython(".venv-voice");
 if (!existsSync(python)) fail("Kokoro is not set up yet. Run this first: npm run setup:voice");
 const v = pythonVersion(python);
-if (!v || v.major !== 3 || v.minor !== 12) {
-  fail(
-    `Voice cloning needs Python 3.12, and the voice environment was made with Python ${v?.text ?? "that does not start"}. ` +
-      `Delete the .venv-voice folder, install Python 3.12 from https://www.python.org/downloads/, then run: npm run setup:voice   and after it: npm run setup:clone`,
-  );
-}
+if (!v || v.major !== 3 || v.minor < 10 || v.minor > 12) fail(`The voice environment's Python (${v?.text ?? "it does not start"}) is not 3.10, 3.11 or 3.12. Run: npm run setup:voice`);
+
+// Kanade, MIT licence, at the commit the studio was written against.
+const KANADE = "kanade-tokenizer @ https://github.com/frothywater/kanade-tokenizer/archive/961f20bf892c59f391d0b6c5f7b88e70ed919b99.zip";
 
 // torchaudio has to be the build that matches the PyTorch Kokoro already uses, or pip replaces PyTorch.
 const torch = spawnSync(python, ["-c", "import torch; print(torch.__version__)"], { encoding: "utf8" });
@@ -28,6 +26,9 @@ if (!run(python, ["-m", "pip", "install", `torchaudio==${version}`, ...index], {
   run(python, ["-m", "pip", "install", `torchaudio==${version}`]);
 }
 run(python, ["-m", "pip", "install", "-r", path.join(root, "python", "kokoro", "requirements-clone.txt")]);
+// Kanade's package says Python 3.12, but its code runs on the Python Kokoro already has here. Its own
+// requirements were installed above the normal way, so only this one package skips the version check.
+run(python, ["-m", "pip", "install", "--no-deps", ...(v.minor < 12 ? ["--ignore-requires-python"] : []), KANADE]);
 
 console.log("\nMaking a test clip (the first run downloads the voice cloning models)...");
 const outDir = path.join(root, "voice-auditions");
