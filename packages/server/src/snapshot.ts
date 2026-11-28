@@ -11,6 +11,7 @@ import { generatedInfo, IMAGE_ASPECTS, imageStatus } from "@studio/core/studio/i
 import { documentInfo, documentUse, pageThumbnail } from "@studio/core/studio/documents";
 import { linkInfo } from "@studio/core/studio/links";
 import { getYouTubeDetails } from "@studio/core/studio/youtube";
+import { getRetentionCheck } from "@studio/core/studio/retention";
 import { FONTS, PALETTE_USE, PALETTES, paletteWarnings } from "@studio/core/studio/model/project";
 import { getProject, listProjects, projectPaths, type Project } from "@studio/core/studio/store/projects";
 import { listRuns } from "@studio/core/studio/store/runs";
@@ -190,6 +191,8 @@ export function projectSnapshot(studio: Studio, orchestrator: Orchestrator, idOr
     thumbnail: thumbnailView(studio, project),
     /** The title, description and tags for uploading, once written. */
     youtube: getYouTubeDetails(studio, project.id) ?? null,
+    /** The script read against the retention guide: what would make a viewer leave, once checked. */
+    retention: getRetentionCheck(studio, project.id) ?? null,
     /** AI-generated images: whether this video allows them, and whether one can be made now. Never the key itself. */
     images: { ...imageStatus(studio, project.id), aspects: IMAGE_ASPECTS },
     /** Who can narrate. */
@@ -266,6 +269,6 @@ function thumbnailView(studio: Studio, project: Project) {
   return {
     designing: run?.status === "queued" || run?.status === "running",
     failed: run?.status === "failed" ? (run.error ?? "The run failed.") : null,
-    design: t ? { version: t.version, text: t.text, idea: t.idea, updatedAt: t.updatedAt, url: fileUrl(studio, project, t.image), smallUrl: fileUrl(studio, project, t.small) } : null,
+    design: t ? { version: t.version, text: t.text, idea: t.idea, others: t.others ?? [], updatedAt: t.updatedAt, url: fileUrl(studio, project, t.image), smallUrl: fileUrl(studio, project, t.small) } : null,
   };
 }

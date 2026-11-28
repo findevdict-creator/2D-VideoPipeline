@@ -14,6 +14,8 @@ export const LIB_README = path.join(LIB_DIR, "README.md");
 export const DESIGN_GUIDE = path.join(LIB_DIR, "guides", "scene-design.md");
 /** How to design a thumbnail that gets clicked: read by thumbnail runs. */
 export const THUMBNAIL_GUIDE = path.join(LIB_DIR, "guides", "thumbnail-design.md");
+/** How to plan and write a video people click and keep watching: read by the runs that plan and write, and by the retention check. */
+export const RETENTION_GUIDE = path.join(LIB_DIR, "guides", "retention.md");
 export const LIB_README_3D = path.join(LIB_DIR, "README-3D.md");
 export const LIB_EXAMPLE_3D = path.join(LIB_DIR, "examples", "ExampleScene3D.tsx");
 export const LIB_EXAMPLE = path.join(LIB_DIR, "examples", "ExampleScene.tsx");

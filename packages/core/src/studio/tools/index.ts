@@ -20,6 +20,7 @@ import { getChapter, listChapters, proposeChapters } from "../store/chapters.js"
 import { latestDocument, listDocuments, readDocument, saveDocument } from "../store/documents.js";
 import { getProject, projectPaths } from "../store/projects.js";
 import { checkThumbnail, saveThumbnail, THUMBNAIL_SIZE } from "../thumbnail.js";
+import { packaging } from "../retention.js";
 import type { RunKind } from "../store/runs.js";
 import {
   currentVersion,
@@ -152,6 +153,7 @@ const tools: ToolDef<any>[] = [
         theme: project.settings.theme,
         sceneTypes: Object.fromEntries(types.map((t) => [t, SCENE_TYPE_GUIDE[t]])),
         generatedImages: imageGuide(studio, project.id),
+        packaging: packaging(studio, project.id),
         ...(listSources(studio, project.id).length
           ? {
               sources: {
@@ -613,6 +615,7 @@ const tools: ToolDef<any>[] = [
       code: z.string().min(20),
       text: z.string().max(60).optional().describe("The words on the thumbnail, exactly as drawn. Empty when it has none"),
       idea: z.string().max(400).optional().describe("The promise the thumbnail makes and why someone would click, in one or two sentences"),
+      others: z.array(z.string().max(300)).max(3).optional().describe("The concepts you considered and did not draw, a sentence each"),
     }),
     handler: async (ctx, input) => {
       scopeOf(ctx, ["thumbnail"]);

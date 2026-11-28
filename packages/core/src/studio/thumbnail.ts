@@ -20,6 +20,8 @@ export interface Thumbnail {
   text: string;
   /** One or two sentences on the idea: what it promises and why someone would click. */
   idea: string;
+  /** Concepts the designer considered and did not draw, a sentence each: candidates for a second thumbnail to test. */
+  others?: string[];
   /** Relative to the project folder. Missing when it has not been drawn (no browser). */
   image: string | null;
   small: string | null;
@@ -104,7 +106,7 @@ export interface SavedThumbnail {
  * Save a thumbnail design and draw it. Each save replaces the design; the picture gets a
  * new file name, so a browser never shows the old one.
  */
-export async function saveThumbnail(studio: Studio, projectId: string, input: { code: string; text?: string; idea?: string }): Promise<SavedThumbnail> {
+export async function saveThumbnail(studio: Studio, projectId: string, input: { code: string; text?: string; idea?: string; others?: string[] }): Promise<SavedThumbnail> {
   const project = getProject(studio, projectId);
   const p = projectPaths(studio, project);
   const t = thumbnailPaths(studio, project);
@@ -128,6 +130,7 @@ export async function saveThumbnail(studio: Studio, projectId: string, input: { 
     version,
     text: input.text?.trim() ?? "",
     idea: input.idea?.trim() ?? "",
+    others: (input.others ?? []).map((o) => o.trim()).filter(Boolean).slice(0, 3),
     image: drawn ? p.rel(image) : null,
     small: drawn ? p.rel(small) : null,
     source: p.rel(t.source),

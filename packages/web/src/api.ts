@@ -37,6 +37,7 @@ export const api = {
     request<{ scenesNowStale: number; warnings: string[] }>("POST", `/api/projects/${encodeURIComponent(slug)}/colours`, choice),
   designThumbnail: (slug: string, notes?: string) => request("POST", `/api/projects/${encodeURIComponent(slug)}/thumbnail`, { notes }),
   writeYouTube: (slug: string, notes?: string) => request("POST", `/api/projects/${encodeURIComponent(slug)}/youtube`, { notes }),
+  checkRetention: (slug: string, notes?: string) => request("POST", `/api/projects/${encodeURIComponent(slug)}/retention`, { notes }),
   saveYouTube: (slug: string, edits: { title?: string; description?: string; tags?: string; hashtags?: string }) => request("PATCH", `/api/projects/${encodeURIComponent(slug)}/youtube`, edits),
   addLink: (slug: string, input: { url: string; use?: string; note?: string }) => request<{ id: string; label: string; warnings: string[] }>("POST", `/api/projects/${encodeURIComponent(slug)}/links`, input),
   allowImages: (slug: string, enabled: boolean) => request("POST", `/api/projects/${encodeURIComponent(slug)}/images`, { enabled }),

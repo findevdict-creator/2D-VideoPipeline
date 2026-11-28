@@ -1324,6 +1324,16 @@ function ThumbnailCard({ snap, slug }: { snap: Snapshot; slug: string }) {
               </p>
             )}
             {design.idea && <p className="muted small">{design.idea}</p>}
+            {design.others.length > 0 && (
+              <div className="muted small">
+                Other ideas Claude considered. YouTube can test up to three thumbnails against each other, so one of these is worth asking for:
+                <ul>
+                  {design.others.map((o) => (
+                    <li key={o}>{o}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <a className="btn btn-quiet" href={design.url} download="thumbnail.png">
               Download
             </a>
@@ -1353,6 +1363,71 @@ function ThumbnailCard({ snap, slug }: { snap: Snapshot; slug: string }) {
               Ask for changes
             </button>
           )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** The script read for what would make a viewer leave: the opening, the stretches that drag, the ending. */
+function RetentionCard({ snap, slug }: { snap: Snapshot; slug: string }) {
+  const [busy, act] = useAction();
+  const [asking, setAsking] = useState(false);
+  const r = snap.retention;
+  const hasScript = snap.scenes.length > 0;
+  return (
+    <section className="card">
+      <h3>Will people keep watching?</h3>
+      <p className="muted">
+        Claude reads the script against the studio's retention guide, as a viewer who owes the video nothing: does the first sentence deliver on the title, where would a bored viewer leave, does it end on its answer. It changes nothing. Send
+        a finding as a review note on the chapter or scene it names. It is best run when the scene lists are written and before the scenes are built.
+      </p>
+      {r && (
+        <div>
+          <p>
+            <strong>{r.verdict === "ready" ? "Ready." : "Fix first."}</strong> {r.summary}
+          </p>
+          {r.promise && <p className="muted small">Promise: {r.promise}</p>}
+          <p className="muted small">
+            Opens with: “{r.measures.firstSentence}” · {r.measures.words} words in {r.measures.scenes} scenes
+          </p>
+          {r.findings.length > 0 && (
+            <ul>
+              {r.findings.map((f, i) => (
+                <li key={i} style={{ marginBottom: 8 }}>
+                  <strong>
+                    {f.where} ({f.severity})
+                  </strong>
+                  : {f.problem}
+                  <br />
+                  <span className="muted">Change: {f.fix}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {r.short && (
+            <p className="muted small">
+              Best Short: chapter {r.short.chapter}, opening on “{r.short.openingLine}”
+            </p>
+          )}
+        </div>
+      )}
+      {asking ? (
+        <NotesBox
+          label="Check with these numbers"
+          placeholder="Numbers from YouTube Studio for this or an earlier video. For example: 42% still watching at 0:30, a drop at 1:10, average view duration 0:55 of 3:20."
+          busy={busy}
+          onCancel={() => setAsking(false)}
+          onSend={(notes) => act(async () => (await api.checkRetention(slug, notes), setAsking(false)), "Checked")}
+        />
+      ) : (
+        <div className="row">
+          <button className={`btn ${r ? "" : "btn-primary"}`} disabled={busy || !hasScript} title={hasScript ? "" : "The check reads the scene lists, which are not written yet"} onClick={() => act(() => api.checkRetention(slug), "Checked")}>
+            {busy ? "Claude is reading…" : r ? "Check again" : "Check the script"}
+          </button>
+          <button className="btn" disabled={busy || !hasScript} onClick={() => setAsking(true)}>
+            Add analytics numbers
+          </button>
         </div>
       )}
     </section>
@@ -1654,6 +1729,7 @@ function VideoTab({ snap, slug, onOpenScenes }: { snap: Snapshot; slug: string; 
           </div>
         )}
       </section>
+      <RetentionCard snap={snap} slug={slug} />
       <ThumbnailCard snap={snap} slug={slug} />
       <UploadDetails snap={snap} slug={slug} />
       <ExportCard snap={snap} slug={slug} ready={allApproved} />

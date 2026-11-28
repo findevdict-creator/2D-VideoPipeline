@@ -290,6 +290,19 @@ npm run studio -- youtube <project>
 npm run studio -- youtube <project> --notes "Aim it at high-school students"
 ```
 
+### Clicks and watch time
+
+The studio plans and writes every video to `packages/lib/guides/retention.md`, its guide for a video people click and keep watching. The outline starts with a **Promise** section (the viewer, the question, a working title, a thumbnail idea and the opening line), the chapters are ordered as a chain of questions, the first sentence delivers on the title, and the video ends on its answer with no recap. The title and the thumbnail are made from the same promise and each is shown the other, so neither repeats the other's words.
+
+"Will people keep watching?" on the **Video** tab has Claude read the script against that guide and say what would make a viewer leave: the place, the problem and the change to make. It changes nothing; send a finding as a review note on the chapter or scene it names. Run it when the scene lists are written and before the scenes are built. "Add analytics numbers" takes what YouTube Studio shows for this or an earlier video, and the check starts from those. It also names the chapter that would work best as a Short and the line to open it on, which a 9:16 export repeats in its notes.
+
+```bash
+npm run studio -- retention <project>
+npm run studio -- retention <project> --notes "38% still watching at 0:30, a drop at 1:10"
+```
+
+The thumbnail card lists the ideas Claude considered and did not draw. YouTube can test up to three thumbnails and three titles against each other and keeps the one with the most watch time, so ask for one of them and upload both.
+
 ## How Claude works on a project
 
 Each piece of work is one Claude Code session, started in the background with `claude -p`. The session gets a role (planner, art director, foundation builder, scriptwriter or scene builder), a task, and a connection to the studio's **MCP server** in [`packages/mcp/`](packages/mcp/). Everything Claude does to a project goes through that server's tools.
@@ -383,6 +396,7 @@ npm run studio -- export <project> --format shorts    # landscape, shorts or squ
 npm run studio -- exports <project>
 npm run studio -- thumbnail <project>                 # Claude designs a thumbnail; --notes to ask for changes
 npm run studio -- youtube <project>                   # title, description and tags for the upload
+npm run studio -- retention <project>                 # read the script for what would make a viewer leave
 npm run studio -- voice <project> bm_george           # the narrator; add slow, normal or fast
 npm run studio -- images <project> on                 # allow AI-generated images for this video
 npm run studio -- asset add <project> photo.png --reference style --note "the colours, not the people"
