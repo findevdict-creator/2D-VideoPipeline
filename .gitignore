@@ -7,3 +7,4 @@ voice-auditions/
 __pycache__/
 
 .venv-manim/
+.venv-chatterbox/

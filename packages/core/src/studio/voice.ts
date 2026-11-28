@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createSpeechEngine, type SpeechItem } from "../voice/engine.js";
 import { applyPronunciations, findCueTiming, kokoroLanguage, loadPronunciations, type Pronunciations, type TimedWord } from "../voice/text.js";
+import { resolveNarrator } from "./clones.js";
 import { newId, nowIso } from "./ids.js";
 import type { Cue } from "./model/scene.js";
 import type { Studio } from "./studio.js";
@@ -37,18 +38,24 @@ export interface CueFrames {
 
 const sha = (value: unknown) => createHash("sha1").update(JSON.stringify(value)).digest("hex").slice(0, 16);
 
-/** The voice for a project: its own voice and pace on top of pipeline.config.json. */
+/**
+ * The voice for a project: its own voice and pace on top of pipeline.config.json. Narration
+ * is kept per set of these, so they say everything that changes how a line sounds. For a
+ * cloned voice that includes the clip and the Kokoro voice it starts from.
+ */
 export function voiceSettings(studio: Studio, project: Project) {
   const v = studio.config.voice;
-  const voice = project.settings.voice.kokoroVoice || v.voice;
+  const narrator = resolveNarrator(studio, project.settings.voice.kokoroVoice || v.voice);
   return {
     engine: v.engine,
-    voice,
-    language: kokoroLanguage(v.language, voice),
+    voice: narrator.id,
+    language: kokoroLanguage(v.language, narrator.kokoroVoice),
     speed: Math.round(v.speed * v.paceSpeed[project.settings.voice.pace] * 1000) / 1000,
     padBeforeSec: v.padBeforeSec,
     padAfterSec: v.padAfterSec,
     sampleRate: v.sampleRate,
+    // Only for a clone, so narration already recorded in a Kokoro voice keeps counting as recorded.
+    ...(narrator.clone ? { clone: { clip: narrator.clone.voice.clipHash, base: narrator.kokoroVoice } } : {}),
   };
 }
 
@@ -69,6 +76,7 @@ export async function ensureVoice(studio: Studio, sceneIds: string[], log: (m: s
   const p = projectPaths(studio, project);
   const settings = voiceSettings(studio, project);
   const settingsHash = sha(settings);
+  const narrator = resolveNarrator(studio, settings.voice);
   const pronunciations = await loadPronunciations(studio.config);
 
   const missing: { scene: Scene; spokenText: string; textHash: string; file: string }[] = [];
@@ -83,16 +91,17 @@ export async function ensureVoice(studio: Studio, sceneIds: string[], log: (m: s
   }
 
   if (missing.length) {
-    log(`Recording narration for ${missing.length} scene(s) with ${settings.voice}${settings.engine === "mock" ? " (mock voice: silent audio)" : ""}`);
+    log(`Recording narration for ${missing.length} scene(s) with ${narrator.clone ? `your voice "${narrator.clone.voice.name}" (${narrator.clone.engine === "chatterbox" ? "Chatterbox" : "Kokoro, re-voiced"})` : settings.voice}${settings.engine === "mock" ? " (mock voice: silent audio)" : ""}`);
     const items: SpeechItem[] = missing.map((m) => ({
       id: m.scene.id,
       text: m.spokenText,
-      voice: settings.voice,
+      voice: narrator.kokoroVoice,
       lang: settings.language,
       speed: settings.speed,
       padBeforeSec: settings.padBeforeSec,
       padAfterSec: settings.padAfterSec,
       outFile: m.file,
+      ...(narrator.clone ? { clone: { engine: narrator.clone.engine, referenceFile: narrator.clone.referenceFile } } : {}),
     }));
     for (const m of missing) fs.mkdirSync(path.dirname(m.file), { recursive: true });
     const result = await createSpeechEngine(studio.config).speak({ sampleRate: settings.sampleRate, items }, log);

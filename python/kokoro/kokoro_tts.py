@@ -8,7 +8,8 @@ Job:
     "sampleRate": 24000,
     "items": [
       {"id": "s01", "text": "...", "voice": "af_heart", "lang": "a", "speed": 1.0,
-       "padBeforeSec": 0.3, "padAfterSec": 0.3, "outFile": "/abs/path/s01.wav"}
+       "padBeforeSec": 0.3, "padAfterSec": 0.3, "outFile": "/abs/path/s01.wav",
+       "clone": {"engine": "kokoclone", "referenceFile": "/abs/voices/me/reference.wav"}}   (clone is optional)
     ],
     "concat": {"files": ["/abs/s01.wav", "/abs/s02.wav"], "outFile": "/abs/full.wav"}   (optional)
   }
@@ -17,6 +18,11 @@ Result:
   {"items": [{"id": "s01", "durationSec": 9.4, "speechStartSec": 0.3, "speechEndSec": 9.1,
               "words": [{"text": "Your", "startSec": 0.31, "endSec": 0.52}, ...]}],
    "concat": {"outFile": "...", "durationSec": 80.2}}
+
+An item with "clone" is spoken by Kokoro and then re-voiced as the person in the reference
+clip (see voice_clone.py). Its timings are Kokoro's, because conversion keeps them.
+
+Exit codes: 2 when Kokoro is not installed, 3 when voice cloning is not installed.
 """
 
 import json
@@ -46,7 +52,7 @@ def resample(audio, src_rate, dst_rate, np):
     return np.interp(x_new, x_old, audio).astype(np.float32)
 
 
-def synthesize(item, pipelines, out_rate, np, sf, KPipeline):
+def synthesize(item, pipelines, out_rate, np, sf, KPipeline, cloner=None):
     lang = item["lang"]
     if lang not in pipelines:
         log(f"Loading Kokoro ({lang})...")
@@ -68,6 +74,8 @@ def synthesize(item, pipelines, out_rate, np, sf, KPipeline):
         offset += len(audio) / KOKORO_RATE
 
     speech = np.concatenate(chunks) if chunks else np.zeros(0, dtype=np.float32)
+    if cloner is not None:
+        speech = cloner.convert(speech, KOKORO_RATE, item["clone"]["referenceFile"], np, sf, resample)
     pad_before = np.zeros(int(round(item["padBeforeSec"] * KOKORO_RATE)), dtype=np.float32)
     pad_after = np.zeros(int(round(item["padAfterSec"] * KOKORO_RATE)), dtype=np.float32)
     full = resample(np.concatenate([pad_before, speech, pad_after]), KOKORO_RATE, out_rate, np)
@@ -98,6 +106,19 @@ def concat(files, out_file, out_rate, np, sf):
     return {"outFile": out_file, "durationSec": round(len(full) / out_rate, 3)}
 
 
+def load_cloner():
+    import os
+
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from voice_clone import NotInstalled, VoiceCloner
+
+    try:
+        return VoiceCloner(log)
+    except NotInstalled as err:
+        log(f"Voice cloning is not installed for this Python ({sys.executable}): {err}. Run: npm run setup:clone")
+        sys.exit(3)
+
+
 def main():
     job = json.load(sys.stdin)
     try:
@@ -112,9 +133,13 @@ def main():
     pipelines = {}
     results = []
     items = job.get("items", [])
+    cloner = None
     for i, item in enumerate(items, 1):
-        log(f"Speaking {item['id']} ({i}/{len(items)})...")
-        results.append(synthesize(item, pipelines, out_rate, np, sf, KPipeline))
+        cloned = bool(item.get("clone"))
+        if cloned and cloner is None:
+            cloner = load_cloner()
+        log(f"Speaking {item['id']} ({i}/{len(items)}){' in a cloned voice' if cloned else ''}...")
+        results.append(synthesize(item, pipelines, out_rate, np, sf, KPipeline, cloner if cloned else None))
 
     output = {"items": results}
     if job.get("concat"):

@@ -7,6 +7,7 @@ import { listChapters } from "@studio/core/studio/store/chapters";
 import { listDocuments, readDocument } from "@studio/core/studio/store/documents";
 import { getThumbnail } from "@studio/core/studio/thumbnail";
 import { PACES, VOICES } from "@studio/core/studio/voices";
+import { CLIP_MAX_SEC, CLIP_MIN_SEC, cloneEngines, cloneId, listClones } from "@studio/core/studio/clones";
 import { generatedInfo, IMAGE_ASPECTS, imageStatus } from "@studio/core/studio/images";
 import { documentInfo, documentUse, pageThumbnail } from "@studio/core/studio/documents";
 import { linkInfo } from "@studio/core/studio/links";
@@ -196,7 +197,16 @@ export function projectSnapshot(studio: Studio, orchestrator: Orchestrator, idOr
     /** AI-generated images: whether this video allows them, and whether one can be made now. Never the key itself. */
     images: { ...imageStatus(studio, project.id), aspects: IMAGE_ASPECTS },
     /** Who can narrate. */
-    voices: { list: VOICES, paces: PACES, silent: studio.config.voice.engine === "mock" },
+    voices: {
+      list: VOICES,
+      paces: PACES,
+      silent: studio.config.voice.engine === "mock",
+      /** Voices the person cloned from a recording of themselves, each with the id that narrates through either engine. */
+      clones: listClones(studio).map((c) => ({ ...c, id: cloneId(c.slug), chatterboxId: cloneId(c.slug, "chatterbox") })),
+      /** Which cloning engines are installed here. */
+      engines: cloneEngines(studio),
+      clip: { minSec: CLIP_MIN_SEC, maxSec: CLIP_MAX_SEC },
+    },
     /** What the look editor offers: ready-made colour schemes, fonts, and what each colour is for. */
     colours: { schemes: PALETTES, fonts: FONTS, use: PALETTE_USE, warnings: paletteWarnings(project.settings.theme.palette) },
     sceneTypes: availableSceneTypes(studio).map((t) => ({ type: t, about: SCENE_TYPE_GUIDE[t] })),

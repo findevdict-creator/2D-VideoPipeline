@@ -3,6 +3,7 @@ import { api, listen, type Asset, type Snapshot } from "./api";
 import { Markdown } from "./markdown";
 import { RunLog } from "./RunLog";
 import { SceneDrawer } from "./SceneDrawer";
+import { CloneVoice } from "./VoiceClone";
 import { ago, CHAPTER_STATUS, Chip, closedMidRun, duration, Link, NotesBox, RUN_KIND, RUN_STATUS, SCENE_STATUS, STAGES, TYPE_NAME, useAction, useRoute, useToast } from "./ui";
 
 const TABS = [
@@ -279,16 +280,18 @@ function PlanTab({ snap }: { snap: Snapshot }) {
   );
 }
 
-/** Who narrates and how fast, with a sample to listen to before choosing. */
+/** Who narrates and how fast, with a sample to listen to before choosing. A narrator is a built-in voice or one cloned from your own. */
 function Voice({ snap }: { snap: Snapshot }) {
   const [busy, act] = useAction();
   const toast = useToast();
   const current = snap.project.settings.voice;
-  const { list, paces, silent } = snap.voices;
+  const { list, paces, silent, clones, engines } = snap.voices;
   const [voice, setVoice] = useState(current.kokoroVoice);
   const [pace, setPace] = useState<string>(current.pace);
+  const [line, setLine] = useState("");
   const [sample, setSample] = useState<string>();
   const [loading, setLoading] = useState(false);
+  const [cloning, setCloning] = useState(false);
   useEffect(() => {
     setVoice(current.kokoroVoice);
     setPace(current.pace);
@@ -301,17 +304,26 @@ function Voice({ snap }: { snap: Snapshot }) {
     { name: "British, female", match: (v: (typeof list)[number]) => v.accent === "British" && v.gender === "female" },
     { name: "British, male", match: (v: (typeof list)[number]) => v.accent === "British" && v.gender === "male" },
   ];
+  const clone = clones.find((c) => c.id === voice || c.chatterboxId === voice);
+  const chatterbox = clone?.chatterboxId === voice;
+  const known = list.some((v) => v.id === voice) || !!clone;
+  // A project can still name a cloned voice that was deleted since.
+  const gone = !known && voice.startsWith("clone.");
   const listen = async () => {
     setLoading(true);
     setSample(undefined);
     try {
-      const got = await api.previewVoice(snap.project.slug, { voice, pace });
+      const got = await api.previewVoice(snap.project.slug, { voice, pace, text: line.trim() || undefined });
       setSample(got.url);
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
+  };
+  const forget = () => {
+    if (!clone || !confirm(`Delete the voice "${clone.name}" and its recording? Videos that use it will need another narrator.`)) return;
+    void act(() => api.deleteVoice(clone.slug), "Voice deleted").then((ok) => ok && (setVoice(current.kokoroVoice === clone.id || current.kokoroVoice === clone.chatterboxId ? "af_heart" : current.kokoroVoice), setSample(undefined)));
   };
   return (
     <section className="card">
@@ -320,7 +332,19 @@ function Voice({ snap }: { snap: Snapshot }) {
         <label>
           Narrator
           <select value={voice} disabled={busy} onChange={(e) => (setVoice(e.target.value), setSample(undefined))}>
-            {!list.some((v) => v.id === voice) && <option value={voice}>{voice}</option>}
+            {!known && <option value={voice}>{gone ? "A deleted voice" : voice}</option>}
+            {clones.length > 0 && (
+              <optgroup label="Your voices">
+                {clones.flatMap((c) => [
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>,
+                  <option key={c.chatterboxId} value={c.chatterboxId}>
+                    {c.name} (Chatterbox)
+                  </option>,
+                ])}
+              </optgroup>
+            )}
             {groups.map((g) => (
               <optgroup key={g.name} label={g.name}>
                 {list.filter(g.match).map((v) => (
@@ -342,14 +366,62 @@ function Voice({ snap }: { snap: Snapshot }) {
             ))}
           </select>
         </label>
-        <button className="btn" disabled={loading} onClick={listen}>
+        <button className="btn" disabled={loading || gone} onClick={listen}>
           {loading ? "Recording a sample…" : "Listen"}
         </button>
-        <button className="btn btn-primary" disabled={busy || !changed} onClick={() => act(() => api.setVoice(snap.project.slug, { voice, pace }), "Voice changed")}>
+        <button className="btn btn-primary" disabled={busy || !changed || gone} onClick={() => act(() => api.setVoice(snap.project.slug, { voice, pace }), "Voice changed")}>
           Use this voice
         </button>
+        {!cloning && (
+          <button className="btn" disabled={busy} onClick={() => setCloning(true)}>
+            Clone my voice
+          </button>
+        )}
       </div>
+      <label className="test-line">
+        <span>
+          Test line <span className="muted small">· optional: a sentence of your own for Listen to speak</span>
+        </span>
+        <input type="text" value={line} maxLength={400} placeholder="This is how your video will sound. Each satellite carries a clock, and your phone listens for it." onChange={(e) => (setLine(e.target.value), setSample(undefined))} />
+      </label>
       {sample && <audio src={sample} controls autoPlay style={{ width: "100%", marginTop: 10 }} />}
+      {gone && <p className="warn small">This video was narrated by a cloned voice that has been deleted. Choose another narrator, or clone the voice again under the same name.</p>}
+      {clone && (
+        <div className="row wrap clone-row">
+          <label>
+            {clone.name} starts from
+            <select value={clone.baseVoice} disabled={busy || chatterbox} onChange={(e) => (setSample(undefined), void act(() => api.setVoiceBase(clone.slug, e.target.value)))}>
+              {!list.some((v) => v.id === clone.baseVoice) && <option value={clone.baseVoice}>{clone.baseVoice}</option>}
+              {list.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.name} ({v.accent}, {v.gender})
+                </option>
+              ))}
+            </select>
+          </label>
+          <button className="btn btn-quiet btn-danger" disabled={busy} onClick={forget}>
+            Delete this voice
+          </button>
+          <span className="muted small">
+            {chatterbox
+              ? "Chatterbox speaks the line itself in your voice: closer to how you talk, but several times slower to record, and what happens on screen is timed a little less exactly."
+              : `Made from a ${Math.round(clone.clipSec)} second recording. A built-in voice speaks and is then turned into yours. If it is not close enough, try another voice to start from, a cleaner recording, or ${clone.name} (Chatterbox).`}
+          </span>
+        </div>
+      )}
+      {clone && !silent && !chatterbox && !engines.kokoclone && <p className="warn small">Voice cloning is not installed yet. Run npm run setup:clone once (about 1 GB), then restart the studio.</p>}
+      {clone && !silent && chatterbox && !engines.chatterbox && <p className="warn small">Chatterbox is not installed yet. Run npm run setup:chatterbox once (several GB), then restart the studio.</p>}
+      {cloning && (
+        <CloneVoice
+          voices={snap.voices}
+          onClose={() => setCloning(false)}
+          onSaved={(id) => {
+            setCloning(false);
+            setVoice(id);
+            setSample(undefined);
+          }}
+        />
+      )}
       {silent && <p className="warn small">The stand-in voice is in use, so samples and narration are silent. Install the voice model (npm run setup:voice) to hear them.</p>}
       <p className="muted small">
         {recorded > 0 && changed

@@ -308,3 +308,14 @@ label.check strong { font-weight: 600; }
 .export video { background: #0b0f17; border-radius: 8px; display: block; width: auto; height: auto; max-height: 320px; max-width: 420px; object-fit: contain; }
 .export .files { list-style: none; padding: 0; margin: 8px 0; display: flex; gap: 14px; flex-wrap: wrap; }
 .export code { font-size: 12px; word-break: break-all; }
+
+/* Voice: a test line, and cloning your own voice */
+.test-line { margin-top: 10px; }
+.test-line input { width: 100%; }
+.clone-row { margin-top: 10px; }
+.clone-row > .small { flex: 1; min-width: 240px; }
+.clone-voice { border-top: 1px solid var(--line); margin-top: 14px; padding-top: 12px; }
+.clone-voice h4 { margin: 0 0 6px; }
+.clone-voice .read-aloud { border-left: 3px solid var(--line); padding: 4px 12px; margin: 10px 0; font-size: 16px; line-height: 1.5; }
+.clone-voice .row { margin-top: 10px; }
+label.file-button { flex-direction: row; font-weight: inherit; font-size: inherit; cursor: pointer; }

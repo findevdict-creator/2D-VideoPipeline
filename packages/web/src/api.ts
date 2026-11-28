@@ -45,7 +45,11 @@ export const api = {
   regenerateImage: (assetId: string, prompt: string) => request<{ scenesNowStale: number }>("POST", `/api/assets/${assetId}/regenerate`, { prompt }),
   saveImageKey: (key: string) => request("POST", "/api/image-key", { key }),
   setVoice: (slug: string, choice: { voice?: string; pace?: string }) => request("POST", `/api/projects/${encodeURIComponent(slug)}/voice`, choice),
-  previewVoice: (slug: string, choice: { voice?: string; pace?: string }) => request<{ url: string; silent: boolean }>("POST", `/api/projects/${encodeURIComponent(slug)}/voice/preview`, choice),
+  saveVoice: (name: string, wav: Blob, baseVoice?: string) =>
+    request<{ id: string; warnings: string[] }>("POST", "/api/voices", wav, { "x-voice-name": encodeURIComponent(name), ...(baseVoice ? { "x-base-voice": baseVoice } : {}), "content-type": "audio/wav" }),
+  setVoiceBase: (voiceSlug: string, baseVoice: string) => request("PATCH", `/api/voices/${encodeURIComponent(voiceSlug)}`, { baseVoice }),
+  deleteVoice: (voiceSlug: string) => request("DELETE", `/api/voices/${encodeURIComponent(voiceSlug)}`),
+  previewVoice: (slug: string, choice: { voice?: string; pace?: string; text?: string }) => request<{ url: string; silent: boolean }>("POST", `/api/projects/${encodeURIComponent(slug)}/voice/preview`, choice),
   updateSettings: (slug: string, settings: { sceneTypes?: string[]; captions?: boolean; theme?: { look?: string }; music?: Record<string, unknown>; sfx?: Record<string, unknown> }) => request("PATCH", `/api/projects/${encodeURIComponent(slug)}`, { settings }),
   startStage: (slug: string, notes?: string) => request("POST", `/api/projects/${encodeURIComponent(slug)}/stage/start`, { notes }),
   approveStage: (slug: string) => request<{ stage: Stage }>("POST", `/api/projects/${encodeURIComponent(slug)}/stage/approve`, {}),

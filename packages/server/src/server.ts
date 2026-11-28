@@ -19,6 +19,7 @@ import type { ModelInfo } from "@studio/core/studio/assets/gltf";
 import { getChapter } from "@studio/core/studio/store/chapters";
 import { createProject, getProject, updateProject } from "@studio/core/studio/store/projects";
 import { previewVoice, setVoice } from "@studio/core/studio/voices";
+import { cloneId, deleteClone, saveClone, setCloneBase } from "@studio/core/studio/clones";
 import { generateImage, saveImageKey, setImagesEnabled } from "@studio/core/studio/images";
 import { prepareDocument, setDocumentUse } from "@studio/core/studio/documents";
 import { addLink } from "@studio/core/studio/links";
@@ -35,6 +36,7 @@ import { assetKeyframes, projectList, projectSnapshot, sceneComparison, sceneDet
 const WEB_DIR = path.join(REPO_ROOT, "packages", "web");
 const MAX_JSON = 2 * 1024 * 1024;
 const MAX_UPLOAD = 2 * 1024 * 1024 * 1024;
+const MAX_VOICE_CLIP = 40 * 1024 * 1024;
 
 /** A mistake in the request, as opposed to a fault in the studio. Shown to the person as it is. */
 class Refused extends Error {
@@ -165,10 +167,37 @@ export async function startServer(studio: Studio, opts: { port?: number; orchest
   route("POST", "/api/projects/:project/voice/preview", async ({ params, body }) => {
     const project = getProject(studio, params.project!);
     try {
-      const sample = await previewVoice(studio, project.id, { voice: typeof body?.voice === "string" ? body.voice : undefined, pace: typeof body?.pace === "string" ? body.pace : undefined });
+      const text = (v: unknown) => (typeof v === "string" ? v : undefined);
+      const sample = await previewVoice(studio, project.id, { voice: text(body?.voice), pace: text(body?.pace), text: text(body?.text) });
       return { url: `/files/${project.slug}/${sample.file}`, voice: sample.voice, pace: sample.pace, silent: sample.silent };
     } catch (err) {
       throw new Refused((err as Error).message.split("\n")[0]!);
+    }
+  });
+  // Your own voices belong to the workspace, not to one project. The clip arrives as a WAV file the page made.
+  route("POST", "/api/voices", async ({ req }) => {
+    const header = (name: string) => decodeURIComponent(String(req.headers[name] ?? ""));
+    const wav = await readBytes(req, MAX_VOICE_CLIP, "That recording is too large. A clip of 10 to 30 seconds is enough.");
+    try {
+      const { voice, warnings } = saveClone(studio, { name: header("x-voice-name"), wav, baseVoice: header("x-base-voice") || undefined });
+      return { id: cloneId(voice.slug), voice, warnings };
+    } catch (err) {
+      throw new Refused((err as Error).message);
+    }
+  });
+  route("PATCH", "/api/voices/:slug", ({ params, body }) => {
+    try {
+      return { voice: setCloneBase(studio, params.slug!, String(body?.baseVoice ?? "")) };
+    } catch (err) {
+      throw new Refused((err as Error).message);
+    }
+  });
+  route("DELETE", "/api/voices/:slug", ({ params }) => {
+    try {
+      deleteClone(studio, params.slug!);
+      return { ok: true };
+    } catch (err) {
+      throw new Refused((err as Error).message);
     }
   });
   route("POST", "/api/projects/:project/stage/start", ({ params, body }) => {
@@ -504,6 +533,22 @@ function json(res: http.ServerResponse, status: number, body: unknown) {
   const text = JSON.stringify(body);
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store", "Content-Length": Buffer.byteLength(text) });
   res.end(text);
+}
+
+function readBytes(req: http.IncomingMessage, limit: number, tooLarge: string): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > limit) {
+        reject(new Refused(tooLarge));
+        req.destroy();
+      } else chunks.push(chunk);
+    });
+    req.on("error", reject);
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+  });
 }
 
 function readJson(req: http.IncomingMessage): Promise<any> {

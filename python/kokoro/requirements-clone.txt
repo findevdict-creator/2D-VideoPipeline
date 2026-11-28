@@ -1,0 +1,3 @@
+# Voice cloning on top of Kokoro (npm run setup:clone). Needs Python 3.12.
+# Kanade voice conversion, MIT licence, pinned to the commit the studio was written against.
+kanade-tokenizer @ https://github.com/frothywater/kanade-tokenizer/archive/961f20bf892c59f391d0b6c5f7b88e70ed919b99.zip
