@@ -135,6 +135,25 @@ export function SceneDrawer({ sceneId, snapshot, refreshKey, onClose }: { sceneI
             <p>{scene.spec?.visual.description || scene.visualIdea}</p>
           </>
         )}
+        {scene.sources.length > 0 && (
+          <>
+            <h4>Where its facts come from</h4>
+            <ul className="small">
+              {scene.sources.map((s, i) => (
+                <li key={i}>
+                  {s.url ? (
+                    <a href={s.url} target="_blank" rel="noreferrer">
+                      {s.label}, page {s.page}
+                    </a>
+                  ) : (
+                    `${s.label}, page ${s.page}`
+                  )}
+                  {s.note ? `: ${s.note}` : ""}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
         <References scene={scene} snapshot={snapshot} onChanged={load} />
         <h4>Place in the video</h4>
         <div className="row wrap centred">

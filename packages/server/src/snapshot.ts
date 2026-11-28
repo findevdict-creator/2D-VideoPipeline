@@ -8,6 +8,7 @@ import { listDocuments, readDocument } from "@studio/core/studio/store/documents
 import { getThumbnail } from "@studio/core/studio/thumbnail";
 import { PACES, VOICES } from "@studio/core/studio/voices";
 import { generatedInfo, IMAGE_ASPECTS, imageStatus } from "@studio/core/studio/images";
+import { documentInfo, pageThumbnail } from "@studio/core/studio/documents";
 import { getYouTubeDetails } from "@studio/core/studio/youtube";
 import { FONTS, PALETTE_USE, PALETTES, paletteWarnings } from "@studio/core/studio/model/project";
 import { getProject, listProjects, projectPaths, type Project } from "@studio/core/studio/store/projects";
@@ -65,6 +66,12 @@ export function sceneCard(studio: Studio, project: Project, scene: Scene) {
     narration: sceneNarration(studio, scene),
     visualIdea: scene.plan.visualIdea ?? "",
     purpose: scene.plan.purpose ?? "",
+    /** The pages of the project's documents this scene's facts come from. */
+    sources: (scene.plan.sources ?? []).map((ref) => {
+      const doc = findAsset(studio, project.id, ref.assetId);
+      const url = doc ? fileUrl(studio, project, doc.path) : null;
+      return { ...ref, label: doc?.label ?? "(removed)", url: url && doc?.mime === "application/pdf" ? `${url}#page=${ref.page}` : url };
+    }),
     version: current?.version ?? null,
     approvedVersion: versions.find((v) => v.id === scene.approvedVersionId)?.version ?? null,
     current: current ? versionView(studio, project, current) : null,
@@ -206,7 +213,7 @@ export function projectSnapshot(studio: Studio, orchestrator: Orchestrator, idOr
     })),
     sharedRequests: listSharedRequests(studio, project.id, "open"),
     assets: listAssets(studio, project.id).map((a) => {
-      const thumb = a.kind === "model" ? modelThumbnail(studio, project, a) : null;
+      const thumb = a.kind === "model" ? modelThumbnail(studio, project, a) : a.kind === "document" ? pageThumbnail(studio, a) : null;
       return {
         ...a,
         url: fileUrl(studio, project, a.path),
@@ -214,6 +221,10 @@ export function projectSnapshot(studio: Studio, orchestrator: Orchestrator, idOr
         previewUrl: thumb ? fileUrl(studio, project, projectPaths(studio, project).rel(thumb)) : null,
         model: (a.meta.model as ModelInfo | undefined) ?? null,
         reference: refs.get(a.id) ?? null,
+        /** For a report or other document: how long it is and whether its text can be read. */
+        document: documentInfo(a) ?? null,
+        /** For an image cut from a document: which one, and the page. */
+        fromDocument: (a.meta.fromDocument as { assetId: string; page: number } | undefined) ?? null,
         /** For an image an AI model made: what it was asked for. */
         generated: generatedInfo(a) ?? null,
       };

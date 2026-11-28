@@ -21,6 +21,7 @@ import { clock, referenceKeyframes } from "@studio/core/studio/assets/keyframes"
 import { LOOKS, MAX_DURATION_SEC, MIN_DURATION_SEC, PALETTE_KEYS, PALETTE_USE, PALETTES } from "@studio/core/studio/model/project";
 import { assemble } from "@studio/core/studio/assemble";
 import { recommendLength } from "@studio/core/studio/length";
+import { prepareDocument } from "@studio/core/studio/documents";
 import { generateImage, imageStatus, saveImageKey, setImagesEnabled } from "@studio/core/studio/images";
 import { gpuReport } from "@studio/core/studio/renderers/gpu";
 import { checkScene, renderSceneClip, renderSceneStills } from "@studio/core/studio/scenes/render";
@@ -45,7 +46,7 @@ Usage:
   npm run studio -- import <production-folder>       bring a pipeline production in as a project
   npm run studio -- scenes <project>                 list a project's scenes and their status
   npm run studio -- assets <project>                 list a project's images, clips, sounds and models
-  npm run studio -- asset add <project> <file...>    add files to a project (--label, --reference style|layout|motion)
+  npm run studio -- asset add <project> <file...>    add files to a project: images, clips, sounds, models, or a report as .pdf, .docx, .txt or .md (--label, --note, --reference style|layout|motion)
   npm run studio -- keyframes <project> <asset>      one frame of each shot of a reference video, and a contact sheet
   npm run studio -- reference <project> <scene> <asset>   attach a reference to one scene (--reference <role>, --at <seconds>, --note; "none" as the role removes it)
   npm run studio -- look <project> <clean|hand-drawn>     change the look; scenes already drawn are marked out of date
@@ -282,9 +283,13 @@ async function run(
     const role = flags.reference;
     if (role && !(REFERENCE_ROLES as readonly string[]).includes(role)) throw new Error(`--reference must be one of: ${REFERENCE_ROLES.join(", ")}`);
     for (const file of files) {
-      const asset = await importAsset(studio, project.id, file, { label: files.length === 1 ? flags.label : undefined });
+      const asset = await importAsset(studio, project.id, file, { label: files.length === 1 ? flags.label : undefined, sourceNote: !role ? flags.note : undefined });
       if (role) setProjectReference(studio, project.id, { assetId: asset.id, role: role as (typeof REFERENCE_ROLES)[number], note: flags.note ?? "" });
       console.log(`${asset.id}  ${asset.kind}  ${asset.label}${role ? `  (${role} reference)` : ""}`);
+      const doc = asset.meta.document as { pages: number; words: number; hasText: boolean } | undefined;
+      // Its text is read and its first page drawn now, so the studio shows it and the first run does not wait.
+      if (doc) await prepareDocument(studio, asset);
+      if (doc) console.log(`  ${doc.pages} pages, ${doc.words.toLocaleString("en-US")} words${doc.hasText ? "" : ". It holds no text, as a scan does: Claude can only look at its pages"}`);
       const model = asset.meta.model as ModelInfo | undefined;
       if (model) {
         console.log(`  ${model.triangles.toLocaleString("en-US")} triangles, ${model.size.join(" x ")} units`);

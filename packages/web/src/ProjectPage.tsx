@@ -907,11 +907,12 @@ function AssetsTab({ snap, slug }: { snap: Snapshot; slug: string }) {
         }}
       >
         <p>
-          <strong>Drop images, video clips, sounds or 3D models here</strong>
+          <strong>Drop images, video clips, sounds, 3D models or documents here</strong>
         </p>
         <p className="muted">
           Use them in image and video-clip scenes, or mark one as a reference to show Claude a style, a layout or a kind of motion. A reference is a direction, not something to copy. A model made in Blender
-          goes in as a .glb file, and 3D scenes can move its named parts and play its animations.
+          goes in as a .glb file, and 3D scenes can move its named parts and play its animations. A report the video should be built on goes in as a PDF, a Word file or plain text: Claude reads it before it
+          plans, takes its facts from it, and can show its charts.
         </p>
         <button className="btn" disabled={busy} onClick={() => input.current?.click()}>
           {busy ? "Adding…" : "Choose files"}
@@ -1010,6 +1011,7 @@ function GeneratedImages({ snap, slug }: { snap: Snapshot; slug: string }) {
 
 function AssetCard({ asset }: { asset: Asset }) {
   const [again, setAgain] = useState<string | null>(null);
+  const [docNote, setDocNote] = useState(asset.sourceNote);
   const [busy, act] = useAction();
   const [note, setNote] = useState(asset.reference?.note ?? "");
   const role = asset.reference?.role ?? "";
@@ -1025,12 +1027,17 @@ function AssetCard({ asset }: { asset: Asset }) {
         <audio className="audio" src={asset.url} controls preload="none" />
       ) : asset.kind === "model" && asset.previewUrl ? (
         <img className="thumb thumb-model" src={asset.previewUrl} alt={asset.label} loading="lazy" />
+      ) : asset.kind === "document" && asset.previewUrl ? (
+        <a href={asset.url ?? undefined} target="_blank" rel="noreferrer" title="Open the document">
+          <img className="thumb thumb-page" src={asset.previewUrl} alt={asset.label} loading="lazy" />
+        </a>
       ) : (
         <div className="thumb thumb-empty">{asset.kind === "model" ? "3D model" : asset.kind}</div>
       )}
       <strong>{asset.label}</strong>
       <span className="muted small">
         {asset.kind === "model" ? "3D model" : asset.kind.replace("audio_", "")} {asset.width ? `· ${asset.width}×${asset.height}` : ""} {asset.durationSec ? `· ${duration(asset.durationSec)}` : ""}
+        {asset.document ? `· ${asset.document.pages} ${asset.document.format === "pdf" ? "pages" : "parts"} · ${asset.document.words.toLocaleString()} words ` : ""}
         {asset.model ? `· ${asset.model.parts.length} parts · ${asset.model.triangles.toLocaleString()} triangles` : ""}
       </span>
       {asset.model && (
@@ -1061,6 +1068,28 @@ function AssetCard({ asset }: { asset: Asset }) {
             {busy ? "Finding the shots…" : "Show one frame of each shot"}
           </button>
         ))}
+      {asset.document && (
+        <>
+          {!asset.document.hasText && <p className="notice small">This PDF is pictures of pages, like a scan, with no text in it. Claude can look at its pages one by one, which is slower and less exact than reading. A copy with real text works better.</p>}
+          <label className="small">
+            What Claude should do with it:
+            <textarea
+              className="small"
+              rows={2}
+              value={docNote}
+              placeholder="For example: build the case for closing the outfall from section 3. Or: background only"
+              onChange={(e) => setDocNote(e.target.value)}
+              onBlur={() => docNote !== asset.sourceNote && act(() => api.editAsset(asset.id, { sourceNote: docNote }), "Saved")}
+            />
+          </label>
+          {asset.url && (
+            <a className="small" href={asset.url} target="_blank" rel="noreferrer">
+              Open the document
+            </a>
+          )}
+        </>
+      )}
+      {asset.fromDocument && <p className="muted small">{asset.sourceNote}</p>}
       {asset.generated && (
         <>
           <p className="muted small" title={asset.generated.prompt}>

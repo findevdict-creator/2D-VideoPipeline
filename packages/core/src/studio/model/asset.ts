@@ -1,4 +1,4 @@
-export const ASSET_KINDS = ["image", "video", "audio_sfx", "audio_music", "model", "font", "other"] as const;
+export const ASSET_KINDS = ["image", "video", "audio_sfx", "audio_music", "model", "font", "document", "other"] as const;
 export type AssetKind = (typeof ASSET_KINDS)[number];
 
 export const REFERENCE_ROLES = ["style", "layout", "motion"] as const;
@@ -23,6 +23,10 @@ const BY_EXTENSION: Record<string, { kind: AssetKind; mime: string }> = {
   ".ttf": { kind: "font", mime: "font/ttf" },
   ".otf": { kind: "font", mime: "font/otf" },
   ".woff2": { kind: "font", mime: "font/woff2" },
+  ".pdf": { kind: "document", mime: "application/pdf" },
+  ".docx": { kind: "document", mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
+  ".txt": { kind: "document", mime: "text/plain" },
+  ".md": { kind: "document", mime: "text/markdown" },
 };
 
 export function guessAsset(fileName: string): { kind: AssetKind; mime: string } {

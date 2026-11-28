@@ -148,6 +148,12 @@ export const ScenePlanSchema = z.object({
   purpose: z.string().default(""),
   narration: z.string().min(3),
   visualIdea: z.string().default("").describe("One or two sentences on what the viewer sees"),
+  /** The pages of the project's documents this scene's facts come from, when it has any. */
+  sources: z
+    .array(z.object({ assetId: z.string(), page: z.number().int().min(1), note: z.string().max(200).optional().describe("What was taken from the page, such as the figure quoted") }))
+    .max(6)
+    .optional()
+    .describe("Where this scene's facts come from: pages of the documents project_get lists"),
 });
 export type ScenePlan = z.infer<typeof ScenePlanSchema>;
 export type ScenePlanInput = z.input<typeof ScenePlanSchema>;

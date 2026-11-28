@@ -20,6 +20,7 @@ import { getChapter } from "@studio/core/studio/store/chapters";
 import { createProject, getProject, updateProject } from "@studio/core/studio/store/projects";
 import { previewVoice, setVoice } from "@studio/core/studio/voices";
 import { generateImage, saveImageKey, setImagesEnabled } from "@studio/core/studio/images";
+import { prepareDocument } from "@studio/core/studio/documents";
 import { saveYouTubeDetails, writeYouTubeDetails } from "@studio/core/studio/youtube";
 import { getRun, readRunLog } from "@studio/core/studio/store/runs";
 import { chooseColours, deleteScene, getScene, moveScene, rollbackScene, setTheme, updatePlan } from "@studio/core/studio/store/scenes";
@@ -286,6 +287,13 @@ export async function startServer(studio: Studio, opts: { port?: number; orchest
         background(
           o.lanes
             .run("renders", () => assetPreview(studio, asset.id))
+            .then(() => studio.emit("asset.changed", { projectId: project.id, targetId: asset.id })),
+        );
+      }
+      if (asset.kind === "document") {
+        background(
+          o.lanes
+            .run("light", () => prepareDocument(studio, asset))
             .then(() => studio.emit("asset.changed", { projectId: project.id, targetId: asset.id })),
         );
       }
